@@ -30,9 +30,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Create nupkg Directory
-        run: mkdir -p ./nupkg
-
       - name: Extract Central Version
         id: extract_version
         run: |
@@ -101,6 +98,9 @@ jobs:
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Create nupkg Directory
+        run: mkdir -p ./nupkg
 
       - name: Restore
         run: dotnet restore "${{ matrix.project }}"
