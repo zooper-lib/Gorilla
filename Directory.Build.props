@@ -1,19 +1,19 @@
 <Project>
     <PropertyGroup>
-        <Authors>Zooper</Authors>
+        <Authors>Daniel Martin</Authors>
+        <Company>Zooper</Company>
         <Copyright>Copyright © Zooper $([System.DateTime]::Now.ToString('yyyy'))</Copyright>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/zooper-lib/Gorilla</PackageProjectUrl>
         <RepositoryUrl>https://github.com/zooper-lib/Gorilla</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
+        <PackageIcon>icon.png</PackageIcon>
         <PackageTags>discriminated-union;oneOf;source-generator;C#</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Description>A .NET source generator for creating discriminated unions in C# with OneOf.</Description>
 
         <!-- Version information -->
-        <Prefix>1.0.0</Prefix>
-        <AssemblyVersion>1.0.0.0</AssemblyVersion>
-        <FileVersion>1.0.0.0</FileVersion>
+        <Version>1.0.0</Version>
 
         <!-- Source linking -->
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -28,10 +28,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
-    </ItemGroup>
-
-    <ItemGroup Condition="'$(IsPackable)' == 'true'">
-        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1" PrivateAssets="All"/>
+        <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" />
+        <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 </Project>
