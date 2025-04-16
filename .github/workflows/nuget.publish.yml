@@ -1,0 +1,149 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write      # Needed for tagging
+
+env:
+  DOTNET_VERSION: '8.x'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+      package_version: ${{ steps.set_package_version.outputs.package_version }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history and tags
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Create nupkg Directory
+        run: mkdir -p ./nupkg
+
+      - name: Extract Central Version
+        id: extract_version
+        run: |
+          if [ ! -f "Directory.Build.props" ]; then
+            echo "Error: Directory.Build.props not found in the repository root."
+            exit 1
+          fi
+
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+
+          if [ -z "$VERSION" ]; then
+            echo "Error: <Version> tag not found in Directory.Build.props."
+            exit 1
+          fi
+
+          echo "Central Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Validate Semantic Versioning
+        run: |
+          VERSION_REGEX="^[0-9]+\.[0-9]+\.[0-9]+$"
+          if [[ "${{ env.VERSION }}" =~ $VERSION_REGEX ]]; then
+            echo "Version '${{ env.VERSION }}' is valid."
+          else
+            echo "Error: Version '${{ env.VERSION }}' does not follow semantic versioning (e.g., 1.0.0)."
+            exit 1
+          fi
+
+      - name: Determine Package Version
+        id: set_package_version
+        run: |
+          # Determine the current branch
+          CURRENT_BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "Current Branch: $CURRENT_BRANCH"
+
+          # Define release or pre-release based on branch
+          if [ "$CURRENT_BRANCH" == "main" ]; then
+            PACKAGE_VERSION="${VERSION}"
+          else
+            BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+            PACKAGE_VERSION="${VERSION}-preview.${BUILD_NUMBER}"
+          fi
+
+          echo "package_version=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+
+          # Debug statement
+          echo "Determined Package Version: $PACKAGE_VERSION"
+
+  build-pack-publish:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project:
+          - Zooper.Gorilla.Attributes/Zooper.Gorilla.Attributes.csproj
+          - Zooper.Gorilla.Generators/Zooper.Gorilla.Generators.csproj
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore "${{ matrix.project }}"
+
+      - name: Build
+        run: dotnet build "${{ matrix.project }}" --configuration Release /p:PackageVersion=${{ needs.setup.outputs.package_version }}
+
+      - name: Pack
+        run: dotnet pack "${{ matrix.project }}" --configuration Release /p:PackageVersion=${{ needs.setup.outputs.package_version }} --output ./nupkg
+
+      - name: Publish
+        run: dotnet nuget push "./nupkg/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
+
+  tag:
+    needs: [ setup, build-pack-publish ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and Push Git Tag
+        run: |
+          PACKAGE_VERSION="${{ needs.setup.outputs.package_version }}"
+          
+          echo "PACKAGE_VERSION is '$PACKAGE_VERSION'"
+          
+          if [ -z "$PACKAGE_VERSION" ]; then
+            echo "Error: PACKAGE_VERSION is empty."
+            exit 1
+          fi
+          
+          # Check if tag already exists
+          if git rev-parse "$PACKAGE_VERSION" >/dev/null 2>&1; then
+            echo "Tag $PACKAGE_VERSION already exists. Skipping tagging."
+          else
+            git tag "$PACKAGE_VERSION"
+            git push origin "$PACKAGE_VERSION"
+            echo "Tag $PACKAGE_VERSION created and pushed successfully."
+          fi 

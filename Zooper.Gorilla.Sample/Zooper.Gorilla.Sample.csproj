@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <RootNamespace>Zooper.Gorilla.Sample</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Zooper.Gorilla.Attributes\Zooper.Gorilla.Attributes.csproj" />
+        <ProjectReference Include="..\Zooper.Gorilla.Generators\Zooper.Gorilla.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="OneOf" Version="3.0.271" />
+    </ItemGroup>
+
+</Project>

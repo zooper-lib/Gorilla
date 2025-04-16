@@ -1,0 +1,38 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build the solution
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test --no-restore --verbosity normal
+
+      - name: Check for source generator errors
+        run: |
+          # This step ensures that the source generators are working correctly
+          dotnet build --configuration Release --no-restore --verbosity detailed | tee build.log
+          if grep -q "error CS" build.log; then
+            echo "Source generator errors found. Check the build log for details."
+            exit 1
+          fi 
