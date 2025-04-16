@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
-        <IsPackable>false</IsPackable>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
 
@@ -19,5 +19,12 @@
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.3.0" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.3.0" PrivateAssets="all"/>
         <PackageReference Include="OneOf" Version="3.0.263"/>
+    </ItemGroup>
+
+    <!-- This is required to include the analyzer in the package -->
+    <ItemGroup>
+        <None Include="$(OutputPath)$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs">
+            <Visible>False</Visible>
+        </None>
     </ItemGroup>
 </Project>
