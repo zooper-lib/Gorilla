@@ -353,7 +353,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("        {");
 		sb.AppendLine("            if (reader.TokenType == Newtonsoft.Json.JsonToken.Null) return null;");
 		sb.AppendLine("            var obj = Newtonsoft.Json.Linq.JObject.Load(reader);");
-		sb.AppendLine($"            var typeName = obj[\"{discriminatorFieldName}\"]?.Value<string>();");
+		sb.AppendLine($"            var typeName = (string?)obj[\"{discriminatorFieldName}\"];");
 		sb.AppendLine();
 		sb.AppendLine("            switch (typeName)");
 		sb.AppendLine("            {");
