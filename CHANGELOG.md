@@ -9,26 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Auto-generated `System.Text.Json` converters** — For every `[DiscriminatedUnion]`, the generator now emits a
-  `JsonConverter<T>` class (e.g. `SignUpErrorJsonConverter`) and applies `[JsonConverter(typeof(...))]` to the
-  union class automatically. No hand-written converters are needed in consumer projects.
+- **Automatic framework detection** — The generator now inspects the consuming project's compilation references
+  at build time. `System.Text.Json` converters, `Newtonsoft.Json` converters, and `[ValidateNever]` are each
+  emitted automatically when the corresponding assembly is referenced — no manual opt-in required.
+  Attribute properties (`GenerateJsonConverter`, `GenerateNewtonsoftJsonConverter`, `SuppressValidation`) act
+  as explicit overrides to force-enable or force-disable individual features.
+
+- **Auto-generated `System.Text.Json` converters** — When the consuming project references `System.Text.Json`,
+  the generator emits a `JsonConverter<T>` class (e.g. `SignUpErrorJsonConverter`) and applies
+  `[JsonConverter(typeof(...))]` to the union class automatically. No hand-written converters needed.
   The converter discriminates on a `"type"` field (configurable) and maps each variant name to its factory
   method, serialising variant properties using camelCase field names.
 
-- **`SuppressValidation` option on `[DiscriminatedUnion]`** — Setting `SuppressValidation = true` makes the
-  generator emit `[Microsoft.AspNetCore.Mvc.ModelBinding.Validation.ValidateNever]` on the class. This prevents
-  the ASP.NET `ValidationVisitor` from walking into `OneOfBase` properties and throwing
-  `InvalidOperationException` when a discriminated union is used inside a controller request DTO.
-  Opt-in to avoid forcing a dependency on `Microsoft.AspNetCore.Mvc.Core` in non-web consumers.
+- **Auto-generated `Newtonsoft.Json` converters** — When the consuming project references `Newtonsoft.Json`,
+  the generator emits a `Newtonsoft.Json.JsonConverter<T>` class (e.g. `SignUpErrorNewtonsoftJsonConverter`)
+  and applies `[Newtonsoft.Json.JsonConverterAttribute(typeof(...))]` to the union class. Uses
+  `Newtonsoft.Json.Linq.JObject` for reading and `JsonSerializer` for nested type deserialization.
+  Both converters can coexist on the same type when both libraries are referenced.
 
-- **`GenerateNewtonsoftJsonConverter` option on `[DiscriminatedUnion]`** — Defaults to `false`. When set to
-  `true`, generates a `Newtonsoft.Json.JsonConverter<T>` class (e.g. `SignUpErrorNewtonsoftJsonConverter`) and
-  applies `[Newtonsoft.Json.JsonConverterAttribute(typeof(...))]` to the union class. Uses
-  `Newtonsoft.Json.Linq.JObject` for reading and the `JsonSerializer` for nested type deserialization.
-  Requires the consuming project to reference `Newtonsoft.Json`. Can be combined with `GenerateJsonConverter`
-  to emit both converters simultaneously.
+- **Auto-generated `[ValidateNever]`** — When the consuming project references
+  `Microsoft.AspNetCore.Mvc.Core`, the generator emits
+  `[Microsoft.AspNetCore.Mvc.ModelBinding.Validation.ValidateNever]` on the class. This prevents the ASP.NET
+  `ValidationVisitor` from walking into `OneOfBase` properties and throwing `InvalidOperationException`.
 
-- **`GenerateJsonConverter` option on `[DiscriminatedUnion]`** — Defaults to `true`. Set to `false` to suppress
+- **`GenerateJsonConverter` option on `[DiscriminatedUnion]`** — Explicit override. Set to `false` to suppress
   converter generation for a specific union (e.g. when providing a custom converter).
 
 - **`DiscriminatorFieldName` option on `[DiscriminatedUnion]`** — Defaults to `"type"`. Overrides the JSON

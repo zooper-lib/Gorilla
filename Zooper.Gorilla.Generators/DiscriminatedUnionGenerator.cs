@@ -91,7 +91,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 				)
 				.ToList();
 
-			var config = GetConfig(classSymbol);
+			var config = GetConfig(classSymbol, compilation);
 			var source = GenerateSource(classSymbol, variants, config);
 			context.AddSource($"{classSymbol.Name}.g.cs", SourceText.From(source, Encoding.UTF8));
 		}
@@ -429,9 +429,19 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("    }");
 	}
 
-	private static UnionConfig GetConfig(INamedTypeSymbol classSymbol)
+	private static UnionConfig GetConfig(INamedTypeSymbol classSymbol, Compilation compilation)
 	{
-		var config = new UnionConfig();
+		// Auto-detect available frameworks from the compilation references
+		var hasNewtonsoftJson = compilation.GetTypeByMetadataName("Newtonsoft.Json.JsonConverter") != null;
+		var hasSystemTextJson = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverter") != null;
+		var hasAspNetValidation = compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Mvc.ModelBinding.Validation.ValidateNeverAttribute") != null;
+
+		var config = new UnionConfig
+		{
+			GenerateJsonConverter = hasSystemTextJson,
+			GenerateNewtonsoftJsonConverter = hasNewtonsoftJson,
+			SuppressValidation = hasAspNetValidation,
+		};
 
 		var attr = classSymbol.GetAttributes()
 			.FirstOrDefault(a => a.AttributeClass?.Name == "DiscriminatedUnionAttribute");
@@ -464,9 +474,10 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 	private class UnionConfig
 	{
 		public bool SuppressValidation { get; set; }
+		public string DiscriminatorFieldName { get; set; } = "type";
 		public bool GenerateJsonConverter { get; set; } = true;
 		public bool GenerateNewtonsoftJsonConverter { get; set; } = true;
-		public string DiscriminatorFieldName { get; set; } = "type";
+
 	}
 
 	// Helper methods
