@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-03-17
+
+### Fixed
+
+- A bug where the Newtonsoft Json converter generation failed due to a missing argument.
+
 ## [1.0.3] — 2026-03-17
 
 ### Added
