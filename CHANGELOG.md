@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] — 2026-03-17
+
 ### Added
 
 - **Automatic framework detection** — The generator now inspects the consuming project's compilation references
