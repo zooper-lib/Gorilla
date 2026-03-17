@@ -260,19 +260,23 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("            using var doc = System.Text.Json.JsonDocument.ParseValue(ref reader);");
 		sb.AppendLine("            var root = doc.RootElement;");
 		sb.AppendLine();
-		sb.AppendLine($"            if (!root.TryGetProperty(\"{discriminatorFieldName}\", out var typeElement))");
-		sb.AppendLine($"                throw new System.Text.Json.JsonException(\"Missing discriminator field '{discriminatorFieldName}'\");");
-		sb.AppendLine();
-		sb.AppendLine("            var typeName = typeElement.GetString();");
-		sb.AppendLine();
-		sb.AppendLine("            switch (typeName)");
+		sb.AppendLine($"            string? typeName = null;");
+		sb.AppendLine($"            if (root.TryGetProperty(\"{discriminatorFieldName}\", out var typeElement))");
 		sb.AppendLine("            {");
-
+		sb.AppendLine("                typeName = typeElement.GetString();");
+		sb.AppendLine("            }");
+		sb.AppendLine("            else");
+		sb.AppendLine("            {");
+		sb.AppendLine("                typeName = InferVariantFromProperties(root);");
+		sb.AppendLine("            }");
+		sb.AppendLine();
+		var isFirst = true;
 		foreach (var variant in variants)
 		{
 			var variantName = variant.Name;
-			sb.AppendLine($"                case \"{variantName}\":");
-			sb.AppendLine("                {");
+			var keyword = isFirst ? "if" : "else if";
+			sb.AppendLine($"            {keyword} (string.Equals(typeName, \"{variantName}\", System.StringComparison.OrdinalIgnoreCase))");
+			sb.AppendLine("            {");
 
 			if (variant.Parameters.Any())
 			{
@@ -280,23 +284,62 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 				{
 					var paramName = param.Name;
 					var paramType = param.Type.ToDisplayString();
-					sb.AppendLine($"                    var @{paramName} = System.Text.Json.JsonSerializer.Deserialize<{paramType}>(root.GetProperty(\"{paramName}\").GetRawText(), options)!;");
+					sb.AppendLine($"                var @{paramName} = System.Text.Json.JsonSerializer.Deserialize<{paramType}>(root.GetProperty(\"{paramName}\").GetRawText(), options)!;");
 				}
 
 				var args = string.Join(", ", variant.Parameters.Select(p => $"@{p.Name}"));
-				sb.AppendLine($"                    return {className}.{variantName}({args});");
+				sb.AppendLine($"                return {className}.{variantName}({args});");
 			}
 			else
 			{
-				sb.AppendLine($"                    return {className}.{variantName}();");
+				sb.AppendLine($"                return {className}.{variantName}();");
 			}
 
-			sb.AppendLine("                }");
+			sb.AppendLine("            }");
+			isFirst = false;
 		}
 
-		sb.AppendLine("                default:");
-		sb.AppendLine("                    throw new System.Text.Json.JsonException($\"Unknown variant type: {typeName}\");");
+		sb.AppendLine("            else");
+		sb.AppendLine("            {");
+		sb.AppendLine("                throw new System.Text.Json.JsonException($\"Unknown variant type: {typeName}\");");
 		sb.AppendLine("            }");
+		sb.AppendLine("        }");
+
+		// InferVariantFromProperties helper
+		sb.AppendLine();
+		sb.AppendLine("        private static string InferVariantFromProperties(System.Text.Json.JsonElement root)");
+		sb.AppendLine("        {");
+		sb.AppendLine("            var properties = new System.Collections.Generic.HashSet<string>();");
+		sb.AppendLine("            foreach (var prop in root.EnumerateObject())");
+		sb.AppendLine("                properties.Add(prop.Name);");
+		sb.AppendLine();
+		sb.AppendLine("            string? match = null;");
+
+		foreach (var variant in variants)
+		{
+			var variantName = variant.Name;
+			var paramNames = variant.Parameters.Select(p => p.Name).ToList();
+
+			if (paramNames.Count == 0)
+			{
+				// Parameterless variant matches only when there are no properties (besides the discriminator)
+				sb.AppendLine($"            if (properties.Count == 0)");
+			}
+			else
+			{
+				var conditions = string.Join(" && ", paramNames.Select(p => $"properties.Contains(\"{p}\")"));
+				sb.AppendLine($"            if ({conditions})");
+			}
+
+			sb.AppendLine("            {");
+			sb.AppendLine($"                if (match != null) throw new System.Text.Json.JsonException(\"Ambiguous variant: multiple variants match the provided properties. Include the discriminator field to disambiguate.\");");
+			sb.AppendLine($"                match = \"{variantName}\";");
+			sb.AppendLine("            }");
+		}
+
+		sb.AppendLine();
+		sb.AppendLine($"            if (match == null) throw new System.Text.Json.JsonException(\"Unable to infer variant type from properties. Include the discriminator field.\");");
+		sb.AppendLine("            return match;");
 		sb.AppendLine("        }");
 
 		// Write method
@@ -354,15 +397,18 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("            if (reader.TokenType == Newtonsoft.Json.JsonToken.Null) return null;");
 		sb.AppendLine("            var obj = Newtonsoft.Json.Linq.JObject.Load(reader);");
 		sb.AppendLine($"            var typeName = (string?)obj[\"{discriminatorFieldName}\"];");
-		sb.AppendLine();
-		sb.AppendLine("            switch (typeName)");
+		sb.AppendLine($"            if (typeName == null)");
 		sb.AppendLine("            {");
-
+		sb.AppendLine("                typeName = InferVariantFromProperties(obj);");
+		sb.AppendLine("            }");
+		sb.AppendLine();
+		var isFirstNewtonsoft = true;
 		foreach (var variant in variants)
 		{
 			var variantName = variant.Name;
-			sb.AppendLine($"                case \"{variantName}\":");
-			sb.AppendLine("                {");
+			var keyword = isFirstNewtonsoft ? "if" : "else if";
+			sb.AppendLine($"            {keyword} (string.Equals(typeName, \"{variantName}\", System.StringComparison.OrdinalIgnoreCase))");
+			sb.AppendLine("            {");
 
 			if (variant.Parameters.Any())
 			{
@@ -370,23 +416,61 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 				{
 					var paramName = param.Name;
 					var paramType = param.Type.ToDisplayString();
-					sb.AppendLine($"                    var @{paramName} = obj[\"{paramName}\"]!.ToObject<{paramType}>(serializer)!;");
+					sb.AppendLine($"                var @{paramName} = obj[\"{paramName}\"]!.ToObject<{paramType}>(serializer)!;");
 				}
 
 				var args = string.Join(", ", variant.Parameters.Select(p => $"@{p.Name}"));
-				sb.AppendLine($"                    return {className}.{variantName}({args});");
+				sb.AppendLine($"                return {className}.{variantName}({args});");
 			}
 			else
 			{
-				sb.AppendLine($"                    return {className}.{variantName}();");
+				sb.AppendLine($"                return {className}.{variantName}();");
 			}
 
-			sb.AppendLine("                }");
+			sb.AppendLine("            }");
+			isFirstNewtonsoft = false;
 		}
 
-		sb.AppendLine("                default:");
-		sb.AppendLine($"                    throw new Newtonsoft.Json.JsonSerializationException($\"Unknown variant type: {{typeName}}\");");
+		sb.AppendLine("            else");
+		sb.AppendLine("            {");
+		sb.AppendLine($"                throw new Newtonsoft.Json.JsonSerializationException($\"Unknown variant type: {{typeName}}\");");
 		sb.AppendLine("            }");
+		sb.AppendLine("        }");
+
+		// InferVariantFromProperties helper for Newtonsoft
+		sb.AppendLine();
+		sb.AppendLine("        private static string InferVariantFromProperties(Newtonsoft.Json.Linq.JObject obj)");
+		sb.AppendLine("        {");
+		sb.AppendLine("            var properties = new System.Collections.Generic.HashSet<string>();");
+		sb.AppendLine("            foreach (var prop in obj.Properties())");
+		sb.AppendLine("                properties.Add(prop.Name);");
+		sb.AppendLine();
+		sb.AppendLine("            string? match = null;");
+
+		foreach (var variant in variants)
+		{
+			var variantName = variant.Name;
+			var paramNames = variant.Parameters.Select(p => p.Name).ToList();
+
+			if (paramNames.Count == 0)
+			{
+				sb.AppendLine($"            if (properties.Count == 0)");
+			}
+			else
+			{
+				var conditions = string.Join(" && ", paramNames.Select(p => $"properties.Contains(\"{p}\")"));
+				sb.AppendLine($"            if ({conditions})");
+			}
+
+			sb.AppendLine("            {");
+			sb.AppendLine($"                if (match != null) throw new Newtonsoft.Json.JsonSerializationException(\"Ambiguous variant: multiple variants match the provided properties. Include the discriminator field to disambiguate.\");");
+			sb.AppendLine($"                match = \"{variantName}\";");
+			sb.AppendLine("            }");
+		}
+
+		sb.AppendLine();
+		sb.AppendLine($"            if (match == null) throw new Newtonsoft.Json.JsonSerializationException(\"Unable to infer variant type from properties. Include the discriminator field.\");");
+		sb.AppendLine("            return match;");
 		sb.AppendLine("        }");
 
 		// WriteJson
