@@ -10,9 +10,9 @@ public sealed class DiscriminatedUnionAttribute : Attribute
     public bool SuppressValidation { get; set; }
 
     /// <summary>
-    /// The JSON property name used as the discriminator field. Defaults to "type".
+    /// The JSON property name used as the discriminator field. Defaults to "$type".
     /// </summary>
-    public string DiscriminatorFieldName { get; set; } = "type";
+    public string DiscriminatorFieldName { get; set; } = "$type";
 
     /// <summary>
     /// When true, generates a System.Text.Json JsonConverter.

@@ -558,7 +558,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 	private class UnionConfig
 	{
 		public bool SuppressValidation { get; set; }
-		public string DiscriminatorFieldName { get; set; } = "type";
+		public string DiscriminatorFieldName { get; set; } = "$type";
 		public bool GenerateJsonConverter { get; set; } = true;
 		public bool GenerateNewtonsoftJsonConverter { get; set; } = true;
 
