@@ -4,8 +4,8 @@ namespace Zooper.Gorilla.Sample;
 
 /// <summary>
 /// Demonstrates a discriminated union with parameterized variants and JSON converter generation.
-/// Serializes to: { "type": "Person", "firstName": "John", "lastName": "Doe" }
-///            or: { "type": "Company", "companyName": "Acme Corp" }
+/// Serializes to: { "$type": "Person", "firstName": "John", "lastName": "Doe" }
+///            or: { "$type": "Company", "companyName": "Acme Corp" }
 /// </summary>
 [DiscriminatedUnion]
 public partial class CreateProfileDto
