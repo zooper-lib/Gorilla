@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-04-29
+
 ### Fixed
 
 - **IDE shows phantom `CS8795` errors on `[DiscriminatedUnion]` types until a file is opened.** The incremental generator pipeline was leaking non-equatable values (`ClassDeclarationSyntax`, full `Compilation`) across stages, so Roslyn's IDE host could not cache or correctly re-run the generator. Generated partial-method implementation halves intermittently went missing in IntelliSense, producing `CS8795 'must have an implementation part because it has accessibility modifiers'` even though `dotnet build` succeeded; opening any union file forced a re-run that cleared the errors across all unions until the cache desynced again.
