@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -12,98 +14,152 @@ namespace Zooper.Gorilla.Generators;
 [Generator]
 public class DiscriminatedUnionGenerator : IIncrementalGenerator
 {
+	private const string DiscriminatedUnionAttributeFullName = "Zooper.Gorilla.Attributes.DiscriminatedUnionAttribute";
+
+	private static readonly DiagnosticDescriptor GeneratorErrorDescriptor = new(
+		id: "ZGOR001",
+		title: "Discriminated union generator failure",
+		messageFormat: "Failed to generate discriminated union for '{0}': {1}",
+		category: "Zooper.Gorilla",
+		defaultSeverity: DiagnosticSeverity.Error,
+		isEnabledByDefault: true);
+
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
-		var classDeclarations = context.SyntaxProvider
-			.CreateSyntaxProvider(
-				predicate: (
-					node,
-					_) => node is ClassDeclarationSyntax,
-				transform: (
-					ctx,
-					_) => GetSemanticTargetForGeneration(ctx)
-			)
-			.Where(m => m is not null)!;
+		var unions = context.SyntaxProvider
+			.ForAttributeWithMetadataName(
+				DiscriminatedUnionAttributeFullName,
+				predicate: static (node, _) => node is ClassDeclarationSyntax,
+				transform: static (ctx, ct) => CreateUnionModel(ctx, ct))
+			.Where(static model => model is not null)
+			.Select(static (model, _) => model!);
 
-		var compilationAndClasses = context.CompilationProvider.Combine(classDeclarations.Collect());
+		var frameworkSupport = context.CompilationProvider
+			.Select(static (compilation, _) => new FrameworkSupport(
+				HasNewtonsoftJson: compilation.GetTypeByMetadataName("Newtonsoft.Json.JsonConverter") is not null,
+				HasSystemTextJson: compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverter") is not null,
+				HasAspNetValidation: compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Mvc.ModelBinding.Validation.ValidateNeverAttribute") is not null));
 
-		context.RegisterSourceOutput(
-			compilationAndClasses,
-			(
-				spc,
-				source) => Execute(spc, source.Left, source.Right, spc.CancellationToken)
-		);
+		var combined = unions.Combine(frameworkSupport);
+
+		context.RegisterSourceOutput(combined, static (spc, pair) => Execute(spc, pair.Left, pair.Right));
 	}
 
-	private static ClassDeclarationSyntax? GetSemanticTargetForGeneration(GeneratorSyntaxContext context)
+	private static UnionModel? CreateUnionModel(GeneratorAttributeSyntaxContext context, CancellationToken cancellationToken)
 	{
-		var classDecl = (ClassDeclarationSyntax)context.Node;
-
-		var hasAttribute = classDecl.AttributeLists
-			.SelectMany(al => al.Attributes)
-			.Any(
-				attr =>
-				{
-					var name = attr.Name.ToString();
-					return name is "DiscriminatedUnion" or "DiscriminatedUnionAttribute";
-				}
-			);
-
-		return hasAttribute ? classDecl : null;
-	}
-
-	private void Execute(
-		SourceProductionContext context,
-		Compilation compilation,
-		ImmutableArray<ClassDeclarationSyntax> classDeclarations,
-		CancellationToken cancellationToken)
-	{
-		if (classDeclarations.IsDefaultOrEmpty)
+		if (context.TargetSymbol is not INamedTypeSymbol classSymbol)
 		{
-			return;
+			return null;
 		}
 
-		foreach (var classDecl in classDeclarations)
+		cancellationToken.ThrowIfCancellationRequested();
+
+		var attribute = context.Attributes.FirstOrDefault();
+		var config = ParseConfig(attribute);
+
+		var variantBuilder = ImmutableArray.CreateBuilder<VariantModel>();
+
+		foreach (var member in classSymbol.GetMembers())
 		{
-			// Get the SemanticModel for the syntax tree that contains the current class declaration
-			var model = compilation.GetSemanticModel(classDecl.SyntaxTree);
+			cancellationToken.ThrowIfCancellationRequested();
 
-			// Now, use the SemanticModel to get the symbol for the current class declaration
-			var classSymbol = model.GetDeclaredSymbol(classDecl) as INamedTypeSymbol;
-
-			if (classSymbol == null)
+			if (member is not IMethodSymbol method)
 			{
 				continue;
 			}
 
-			// Proceed with the rest of your code generation logic
-			var variants = classSymbol.GetMembers()
-				.OfType<IMethodSymbol>()
-				.Where(
-					method => method.GetAttributes()
-						.Any(
-							attr =>
-							{
-								var name = attr.AttributeClass?.Name;
-								return name is "VariantAttribute" or "Variant";
-							}
-						)
-				)
-				.ToList();
+			var hasVariantAttribute = method.GetAttributes()
+				.Any(a => a.AttributeClass?.Name is "VariantAttribute" or "Variant");
 
-			var config = GetConfig(classSymbol, compilation);
-			var source = GenerateSource(classSymbol, variants, config);
-			context.AddSource($"{classSymbol.Name}.g.cs", SourceText.From(source, Encoding.UTF8));
+			if (!hasVariantAttribute)
+			{
+				continue;
+			}
+
+			var paramBuilder = ImmutableArray.CreateBuilder<VariantParameter>();
+			foreach (var parameter in method.Parameters)
+			{
+				paramBuilder.Add(new VariantParameter(parameter.Name, parameter.Type.ToDisplayString()));
+			}
+
+			variantBuilder.Add(new VariantModel(method.Name, new EquatableArray<VariantParameter>(paramBuilder.ToArray())));
+		}
+
+		return new UnionModel(
+			Namespace: classSymbol.ContainingNamespace.IsGlobalNamespace
+				? string.Empty
+				: classSymbol.ContainingNamespace.ToDisplayString(),
+			ClassName: classSymbol.Name,
+			Variants: new EquatableArray<VariantModel>(variantBuilder.ToArray()),
+			Config: config);
+	}
+
+	private static UnionConfig ParseConfig(AttributeData? attribute)
+	{
+		bool? suppressValidation = null;
+		string discriminatorFieldName = "$type";
+		bool? generateJsonConverter = null;
+		bool? generateNewtonsoftJsonConverter = null;
+
+		if (attribute is not null)
+		{
+			foreach (var arg in attribute.NamedArguments)
+			{
+				switch (arg.Key)
+				{
+					case "SuppressValidation":
+						if (arg.Value.Value is bool sv) suppressValidation = sv;
+						break;
+					case "GenerateJsonConverter":
+						if (arg.Value.Value is bool gjc) generateJsonConverter = gjc;
+						break;
+					case "DiscriminatorFieldName":
+						if (arg.Value.Value is string dfn && !string.IsNullOrEmpty(dfn)) discriminatorFieldName = dfn;
+						break;
+					case "GenerateNewtonsoftJsonConverter":
+						if (arg.Value.Value is bool gnj) generateNewtonsoftJsonConverter = gnj;
+						break;
+				}
+			}
+		}
+
+		return new UnionConfig(
+			SuppressValidation: suppressValidation,
+			DiscriminatorFieldName: discriminatorFieldName,
+			GenerateJsonConverter: generateJsonConverter,
+			GenerateNewtonsoftJsonConverter: generateNewtonsoftJsonConverter);
+	}
+
+	private static void Execute(SourceProductionContext context, UnionModel union, FrameworkSupport frameworkSupport)
+	{
+		try
+		{
+			var generateJsonConverter = union.Config.GenerateJsonConverter ?? frameworkSupport.HasSystemTextJson;
+			var generateNewtonsoftJsonConverter = union.Config.GenerateNewtonsoftJsonConverter ?? frameworkSupport.HasNewtonsoftJson;
+			var suppressValidation = union.Config.SuppressValidation ?? frameworkSupport.HasAspNetValidation;
+
+			var source = GenerateSource(union, generateJsonConverter, generateNewtonsoftJsonConverter, suppressValidation);
+			context.AddSource($"{union.ClassName}.g.cs", SourceText.From(source, Encoding.UTF8));
+		}
+		catch (Exception ex)
+		{
+			context.ReportDiagnostic(Diagnostic.Create(
+				GeneratorErrorDescriptor,
+				Location.None,
+				union.ClassName,
+				ex.Message));
 		}
 	}
 
-	private string GenerateSource(
-		INamedTypeSymbol classSymbol,
-		List<IMethodSymbol> variants,
-		UnionConfig config)
+	private static string GenerateSource(
+		UnionModel union,
+		bool generateJsonConverter,
+		bool generateNewtonsoftJsonConverter,
+		bool suppressValidation)
 	{
-		var namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
-		var className = classSymbol.Name;
+		var className = union.ClassName;
+		var namespaceName = union.Namespace;
+		var variants = union.Variants;
 
 		var sb = new StringBuilder();
 		sb.AppendLine("#nullable enable");
@@ -114,17 +170,17 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine($"namespace {namespaceName}");
 		sb.AppendLine("{");
 
-		if (config.GenerateJsonConverter)
+		if (generateJsonConverter)
 		{
 			sb.AppendLine($"    [System.Text.Json.Serialization.JsonConverter(typeof({className}JsonConverter))]");
 		}
 
-		if (config.GenerateNewtonsoftJsonConverter)
+		if (generateNewtonsoftJsonConverter)
 		{
 			sb.AppendLine($"    [Newtonsoft.Json.JsonConverterAttribute(typeof({className}NewtonsoftJsonConverter))]");
 		}
 
-		if (config.SuppressValidation)
+		if (suppressValidation)
 		{
 			sb.AppendLine("    [Microsoft.AspNetCore.Mvc.ModelBinding.Validation.ValidateNever]");
 		}
@@ -137,20 +193,20 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 		GenerateVariantMethods(sb, className, variants);
 
-		GenerateVariantClasses(sb, className, variants);
+		GenerateVariantClasses(sb, variants);
 
 		sb.AppendLine("    }");
 
-		if (config.GenerateJsonConverter)
+		if (generateJsonConverter)
 		{
 			sb.AppendLine();
-			GenerateJsonConverterClass(sb, className, variants, config.DiscriminatorFieldName);
+			GenerateJsonConverterClass(sb, className, variants, union.Config.DiscriminatorFieldName);
 		}
 
-		if (config.GenerateNewtonsoftJsonConverter)
+		if (generateNewtonsoftJsonConverter)
 		{
 			sb.AppendLine();
-			GenerateNewtonsoftJsonConverterClass(sb, className, variants, config.DiscriminatorFieldName);
+			GenerateNewtonsoftJsonConverterClass(sb, className, variants, union.Config.DiscriminatorFieldName);
 		}
 
 		sb.AppendLine("}");
@@ -158,33 +214,33 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		return sb.ToString();
 	}
 
-	private void GenerateClassHeader(
+	private static void GenerateClassHeader(
 		StringBuilder sb,
 		string className,
-		List<IMethodSymbol> variants)
+		EquatableArray<VariantModel> variants)
 	{
 		var variantTypeNames = variants.Select(v => $"{className}.{v.Name}Variant").ToList();
 		sb.AppendLine($"    public partial class {className} : OneOfBase<{string.Join(", ", variantTypeNames)}>");
 	}
 
-	private void GenerateConstructor(
+	private static void GenerateConstructor(
 		StringBuilder sb,
 		string className,
-		List<IMethodSymbol> variants)
+		EquatableArray<VariantModel> variants)
 	{
 		var variantTypeNames = variants.Select(v => $"{className}.{v.Name}Variant").ToList();
 		sb.AppendLine($"        private {className}(OneOf<{string.Join(", ", variantTypeNames)}> value) : base(value) {{ }}");
 	}
 
-	private void GenerateVariantMethods(
+	private static void GenerateVariantMethods(
 		StringBuilder sb,
 		string className,
-		List<IMethodSymbol> variants)
+		EquatableArray<VariantModel> variants)
 	{
 		foreach (var variant in variants)
 		{
 			var variantName = variant.Name;
-			var parameters = string.Join(", ", variant.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"));
+			var parameters = string.Join(", ", variant.Parameters.Select(p => $"{p.Type} {p.Name}"));
 			var args = string.Join(", ", variant.Parameters.Select(p => p.Name));
 			var variantTypeName = $"{variantName}Variant";
 			var methodSignature = $"public static partial {className} {variantName}({parameters})";
@@ -196,28 +252,26 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		}
 	}
 
-	private void GenerateVariantClasses(
+	private static void GenerateVariantClasses(
 		StringBuilder sb,
-		string className,
-		List<IMethodSymbol> variants)
+		EquatableArray<VariantModel> variants)
 	{
 		foreach (var variant in variants)
 		{
 			var variantName = variant.Name;
 			var variantTypeName = $"{variantName}Variant";
 			var parameters = variant.Parameters;
-			var fields = parameters.Select(p => $"            public {p.Type.ToDisplayString()} {FirstCharToUpper(p.Name)} {{ get; }}")
+			var fields = parameters.Select(p => $"            public {p.Type} {FirstCharToUpper(p.Name)} {{ get; }}")
 				.ToList();
-			var ctorParameters = string.Join(", ", parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"));
+			var ctorParameters = string.Join(", ", parameters.Select(p => $"{p.Type} {p.Name}"));
 			var assignments = parameters.Select(p => $"                this.{FirstCharToUpper(p.Name)} = {p.Name};").ToList();
 
 			sb.AppendLine();
 			sb.AppendLine($"        public class {variantTypeName}");
 			sb.AppendLine("        {");
 
-			if (parameters.Any())
+			if (parameters.Count > 0)
 			{
-				// Make the constructor internal or private
 				sb.AppendLine($"            internal {variantTypeName}({ctorParameters})");
 				sb.AppendLine("            {");
 
@@ -243,10 +297,10 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		}
 	}
 
-	private void GenerateJsonConverterClass(
+	private static void GenerateJsonConverterClass(
 		StringBuilder sb,
 		string className,
-		List<IMethodSymbol> variants,
+		EquatableArray<VariantModel> variants,
 		string discriminatorFieldName)
 	{
 		var converterName = $"{className}JsonConverter";
@@ -254,7 +308,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine($"    public class {converterName} : System.Text.Json.Serialization.JsonConverter<{className}>");
 		sb.AppendLine("    {");
 
-		// Read method
 		sb.AppendLine($"        public override {className}? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)");
 		sb.AppendLine("        {");
 		sb.AppendLine("            using var doc = System.Text.Json.JsonDocument.ParseValue(ref reader);");
@@ -278,12 +331,12 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			sb.AppendLine($"            {keyword} (string.Equals(typeName, \"{variantName}\", System.StringComparison.OrdinalIgnoreCase))");
 			sb.AppendLine("            {");
 
-			if (variant.Parameters.Any())
+			if (variant.Parameters.Count > 0)
 			{
 				foreach (var param in variant.Parameters)
 				{
 					var paramName = param.Name;
-					var paramType = param.Type.ToDisplayString();
+					var paramType = param.Type;
 					sb.AppendLine($"                var @{paramName} = System.Text.Json.JsonSerializer.Deserialize<{paramType}>(root.GetProperty(\"{paramName}\").GetRawText(), options)!;");
 				}
 
@@ -305,7 +358,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("            }");
 		sb.AppendLine("        }");
 
-		// InferVariantFromProperties helper
 		sb.AppendLine();
 		sb.AppendLine("        private static string InferVariantFromProperties(System.Text.Json.JsonElement root)");
 		sb.AppendLine("        {");
@@ -322,7 +374,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 			if (paramNames.Count == 0)
 			{
-				// Parameterless variant matches only when there are no properties (besides the discriminator)
 				sb.AppendLine($"            if (properties.Count == 0)");
 			}
 			else
@@ -342,7 +393,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("            return match;");
 		sb.AppendLine("        }");
 
-		// Write method
 		sb.AppendLine();
 		sb.AppendLine($"        public override void Write(System.Text.Json.Utf8JsonWriter writer, {className} value, System.Text.Json.JsonSerializerOptions options)");
 		sb.AppendLine("        {");
@@ -380,10 +430,10 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("    }");
 	}
 
-	private void GenerateNewtonsoftJsonConverterClass(
+	private static void GenerateNewtonsoftJsonConverterClass(
 		StringBuilder sb,
 		string className,
-		List<IMethodSymbol> variants,
+		EquatableArray<VariantModel> variants,
 		string discriminatorFieldName)
 	{
 		var converterName = $"{className}NewtonsoftJsonConverter";
@@ -391,7 +441,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine($"    public class {converterName} : Newtonsoft.Json.JsonConverter<{className}>");
 		sb.AppendLine("    {");
 
-		// ReadJson
 		sb.AppendLine($"        public override {className}? ReadJson(Newtonsoft.Json.JsonReader reader, System.Type objectType, {className}? existingValue, bool hasExistingValue, Newtonsoft.Json.JsonSerializer serializer)");
 		sb.AppendLine("        {");
 		sb.AppendLine("            if (reader.TokenType == Newtonsoft.Json.JsonToken.Null) return null;");
@@ -410,12 +459,12 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			sb.AppendLine($"            {keyword} (string.Equals(typeName, \"{variantName}\", System.StringComparison.OrdinalIgnoreCase))");
 			sb.AppendLine("            {");
 
-			if (variant.Parameters.Any())
+			if (variant.Parameters.Count > 0)
 			{
 				foreach (var param in variant.Parameters)
 				{
 					var paramName = param.Name;
-					var paramType = param.Type.ToDisplayString();
+					var paramType = param.Type;
 					sb.AppendLine($"                var @{paramName} = obj[\"{paramName}\"]!.ToObject<{paramType}>(serializer)!;");
 				}
 
@@ -437,7 +486,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("            }");
 		sb.AppendLine("        }");
 
-		// InferVariantFromProperties helper for Newtonsoft
 		sb.AppendLine();
 		sb.AppendLine("        private static string InferVariantFromProperties(Newtonsoft.Json.Linq.JObject obj)");
 		sb.AppendLine("        {");
@@ -473,7 +521,6 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("            return match;");
 		sb.AppendLine("        }");
 
-		// WriteJson
 		sb.AppendLine();
 		sb.AppendLine($"        public override void WriteJson(Newtonsoft.Json.JsonWriter writer, {className}? value, Newtonsoft.Json.JsonSerializer serializer)");
 		sb.AppendLine("        {");
@@ -513,61 +560,80 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		sb.AppendLine("    }");
 	}
 
-	private static UnionConfig GetConfig(INamedTypeSymbol classSymbol, Compilation compilation)
+	private static string FirstCharToUpper(string input) =>
+		string.IsNullOrEmpty(input) ? input : char.ToUpper(input[0]) + input.Substring(1);
+}
+
+internal readonly record struct FrameworkSupport(
+	bool HasNewtonsoftJson,
+	bool HasSystemTextJson,
+	bool HasAspNetValidation);
+
+internal readonly record struct UnionConfig(
+	bool? SuppressValidation,
+	string DiscriminatorFieldName,
+	bool? GenerateJsonConverter,
+	bool? GenerateNewtonsoftJsonConverter);
+
+internal sealed record VariantModel(string Name, EquatableArray<VariantParameter> Parameters);
+
+internal readonly record struct VariantParameter(string Name, string Type);
+
+internal sealed record UnionModel(
+	string Namespace,
+	string ClassName,
+	EquatableArray<VariantModel> Variants,
+	UnionConfig Config);
+
+internal readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IEnumerable<T>
+	where T : IEquatable<T>
+{
+	private readonly T[]? _array;
+
+	public EquatableArray(T[] array)
 	{
-		// Auto-detect available frameworks from the compilation references
-		var hasNewtonsoftJson = compilation.GetTypeByMetadataName("Newtonsoft.Json.JsonConverter") != null;
-		var hasSystemTextJson = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverter") != null;
-		var hasAspNetValidation = compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Mvc.ModelBinding.Validation.ValidateNeverAttribute") != null;
+		_array = array;
+	}
 
-		var config = new UnionConfig
+	public int Count => _array?.Length ?? 0;
+
+	public T this[int index] => _array![index];
+
+	public bool Equals(EquatableArray<T> other)
+	{
+		var a = _array;
+		var b = other._array;
+
+		if (a is null) return b is null || b.Length == 0;
+		if (b is null) return a.Length == 0;
+		if (a.Length != b.Length) return false;
+
+		for (int i = 0; i < a.Length; i++)
 		{
-			GenerateJsonConverter = hasSystemTextJson,
-			GenerateNewtonsoftJsonConverter = hasNewtonsoftJson,
-			SuppressValidation = hasAspNetValidation,
-		};
-
-		var attr = classSymbol.GetAttributes()
-			.FirstOrDefault(a => a.AttributeClass?.Name == "DiscriminatedUnionAttribute");
-
-		if (attr != null)
-		{
-			foreach (var arg in attr.NamedArguments)
-			{
-				switch (arg.Key)
-				{
-					case "SuppressValidation":
-						config.SuppressValidation = (bool)arg.Value.Value!;
-						break;
-					case "GenerateJsonConverter":
-						config.GenerateJsonConverter = (bool)arg.Value.Value!;
-						break;
-					case "DiscriminatorFieldName":
-						config.DiscriminatorFieldName = (string)arg.Value.Value!;
-						break;
-					case "GenerateNewtonsoftJsonConverter":
-						config.GenerateNewtonsoftJsonConverter = (bool)arg.Value.Value!;
-						break;
-				}
-			}
+			if (!a[i].Equals(b[i])) return false;
 		}
 
-		return config;
+		return true;
 	}
 
-	private class UnionConfig
+	public override bool Equals(object? obj) => obj is EquatableArray<T> other && Equals(other);
+
+	public override int GetHashCode()
 	{
-		public bool SuppressValidation { get; set; }
-		public string DiscriminatorFieldName { get; set; } = "$type";
-		public bool GenerateJsonConverter { get; set; } = true;
-		public bool GenerateNewtonsoftJsonConverter { get; set; } = true;
-
+		if (_array is null) return 0;
+		unchecked
+		{
+			int hash = 17;
+			foreach (var item in _array)
+			{
+				hash = hash * 31 + (item?.GetHashCode() ?? 0);
+			}
+			return hash;
+		}
 	}
 
-	// Helper methods
-	private string FirstCharToLower(string input) =>
-		string.IsNullOrEmpty(input) ? input : char.ToLower(input[0]) + input.Substring(1);
+	public IEnumerator<T> GetEnumerator() =>
+		((IEnumerable<T>)(_array ?? Array.Empty<T>())).GetEnumerator();
 
-	private string FirstCharToUpper(string input) =>
-		string.IsNullOrEmpty(input) ? input : char.ToUpper(input[0]) + input.Substring(1);
+	IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **IDE shows phantom `CS8795` errors on `[DiscriminatedUnion]` types until a file is opened.** The incremental generator pipeline was leaking non-equatable values (`ClassDeclarationSyntax`, full `Compilation`) across stages, so Roslyn's IDE host could not cache or correctly re-run the generator. Generated partial-method implementation halves intermittently went missing in IntelliSense, producing `CS8795 'must have an implementation part because it has accessibility modifiers'` even though `dotnet build` succeeded; opening any union file forced a re-run that cleared the errors across all unions until the cache desynced again.
+
+### Changed
+
+- Rewrote `DiscriminatedUnionGenerator` to use `ForAttributeWithMetadataName` and project to fully value-equatable models (`UnionModel`, `VariantModel`, `VariantParameter`, `UnionConfig`, `EquatableArray<T>`). Framework detection (`System.Text.Json`, `Newtonsoft.Json`, `Microsoft.AspNetCore.Mvc` validation) is now its own `CompilationProvider.Select` stage that emits a small `FrameworkSupport` record struct, so per-union output only re-runs when that union's model or a framework toggle actually changes.
+- Bumped `Microsoft.CodeAnalysis.CSharp` and `Microsoft.CodeAnalysis.CSharp.Workspaces` from `4.3.0` to `4.8.0` (required for `ForAttributeWithMetadataName`).
+- Hardened `[DiscriminatedUnion]` attribute argument parsing against `null` / wrongly-typed `TypedConstant` values (previously could throw and silently kill the generator).
+- Wrapped per-union source generation in a guard that reports diagnostic `ZGOR001` instead of failing silently.
+
+### Internal
+
+- Added `IsExternalInit` polyfill so `record` and `init` setters compile on the `netstandard2.0` generator target.
+- Added `AnalyzerReleases.Shipped.md` / `AnalyzerReleases.Unshipped.md` for the new `ZGOR001` diagnostic.
+
 ## [1.1.0] — 2026-04-17
 
 ### Changed
