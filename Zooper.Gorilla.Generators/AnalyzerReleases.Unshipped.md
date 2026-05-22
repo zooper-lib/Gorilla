@@ -6,3 +6,4 @@
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 ZGOR001 | Zooper.Gorilla | Error | Discriminated union generator failure
+ZGOR002 | Zooper.Gorilla | Warning | Containing type must be partial
