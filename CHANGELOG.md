@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-22
+
+### Added
+
+- Support for flat discriminated unions nested inside containing classes, interfaces, and other type scopes. The generator now preserves the containing type chain, emits nested partial scaffolding, and uses fully-qualified source hints to avoid collisions between same-named nested union types.
+- Support for abstract hierarchical unions where nested sub-unions participate in outer `Match(...)` dispatch without relying on `OneOfBase` for the abstract path.
+- Generated `System.Text.Json` and `Newtonsoft.Json` converters for hierarchical unions, including recursive delegation to nested sub-union converters.
+- Diagnostic `ZGOR002`, which warns when a discriminated union is declared inside a containing type that is not marked `partial`.
+- A generator test project covering nested flat unions, hierarchical unions, diagnostics, and JSON round-trips.
+
+### Changed
+
+- The README now documents nested contract-owned unions, hierarchical abstract unions, and the sample files demonstrating both patterns.
+- The sample project now includes nested and hierarchical union examples in `NestedContractSamples.cs` and `ContractOutcome.cs`.
+
 ## [1.2.0] — 2026-04-29
 
 ### Fixed
