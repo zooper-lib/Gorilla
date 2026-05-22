@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-22
+
 ### Added
 
 - Support for flat discriminated unions nested inside containing classes, interfaces, and other type scopes. The generator now preserves the containing type chain, emits nested partial scaffolding, and uses fully-qualified source hints to avoid collisions between same-named nested union types.
