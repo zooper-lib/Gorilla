@@ -647,6 +647,8 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 		AppendLineIndented(sb, indentLevel, $"public class {converterName} : System.Text.Json.Serialization.JsonConverter<{className}>");
 		AppendLineIndented(sb, indentLevel, "{");
+		EmitStjConverterHelpers(sb, indentLevel + 1);
+		sb.AppendLine();
 		AppendLineIndented(sb, indentLevel + 1, $"public override {className}? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
 		AppendLineIndented(sb, indentLevel + 2, "using var doc = System.Text.Json.JsonDocument.ParseValue(ref reader);");
@@ -661,7 +663,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, "{");
 		AppendLineIndented(sb, indentLevel + 3, "try");
 		AppendLineIndented(sb, indentLevel + 3, "{");
-		AppendLineIndented(sb, indentLevel + 4, "typeName = InferVariantFromProperties(root);");
+		AppendLineIndented(sb, indentLevel + 4, "typeName = InferVariantFromProperties(root, options);");
 		AppendLineIndented(sb, indentLevel + 3, "}");
 		AppendLineIndented(sb, indentLevel + 3, "catch (System.Text.Json.JsonException)");
 		AppendLineIndented(sb, indentLevel + 3, "{");
@@ -680,7 +682,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			{
 				foreach (var param in variant.Parameters)
 				{
-					AppendLineIndented(sb, indentLevel + 3, $"var @{param.Name} = System.Text.Json.JsonSerializer.Deserialize<{param.Type}>(root.GetProperty(\"{param.Name}\").GetRawText(), options)!;");
+					AppendLineIndented(sb, indentLevel + 3, $"var @{param.Name} = System.Text.Json.JsonSerializer.Deserialize<{param.Type}>(GetMember(root, ResolvePropertyName(\"{FirstCharToUpper(param.Name)}\", \"{param.Name}\", options), options).GetRawText(), options)!;");
 				}
 				var args = string.Join(", ", variant.Parameters.Select(p => $"@{p.Name}"));
 				AppendLineIndented(sb, indentLevel + 3, $"return {className}.{variant.Name}({args});");
@@ -709,23 +711,24 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, "throw new System.Text.Json.JsonException($\"Unknown variant type: {typeName}\");");
 		AppendLineIndented(sb, indentLevel + 1, "}");
 		sb.AppendLine();
-		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(System.Text.Json.JsonElement root)");
+		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(System.Text.Json.JsonElement root, System.Text.Json.JsonSerializerOptions options)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
-		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>();");
+		AppendLineIndented(sb, indentLevel + 2, "var comparer = options.PropertyNameCaseInsensitive ? System.StringComparer.OrdinalIgnoreCase : System.StringComparer.Ordinal;");
+		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>(comparer);");
 		AppendLineIndented(sb, indentLevel + 2, "foreach (var prop in root.EnumerateObject())");
 		AppendLineIndented(sb, indentLevel + 3, "properties.Add(prop.Name);");
 		sb.AppendLine();
 		AppendLineIndented(sb, indentLevel + 2, "string? match = null;");
 		foreach (var variant in union.Variants)
 		{
-			var parameterNames = variant.Parameters.Select(p => p.Name).ToList();
-			if (parameterNames.Count == 0)
+			var parameters = variant.Parameters.ToList();
+			if (parameters.Count == 0)
 			{
 				AppendLineIndented(sb, indentLevel + 2, "if (properties.Count == 0)");
 			}
 			else
 			{
-				var conditions = string.Join(" && ", parameterNames.Select(p => $"properties.Contains(\"{p}\")"));
+				var conditions = string.Join(" && ", parameters.Select(p => $"properties.Contains(ResolvePropertyName(\"{FirstCharToUpper(p.Name)}\", \"{p.Name}\", options))"));
 				AppendLineIndented(sb, indentLevel + 2, $"if ({conditions})");
 			}
 			AppendLineIndented(sb, indentLevel + 2, "{");
@@ -751,7 +754,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			AppendLineIndented(sb, indentLevel + 4, $"writer.WriteString(\"{discriminatorFieldName}\", \"{variant.Name}\");");
 			foreach (var param in variant.Parameters)
 			{
-				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(\"{param.Name}\");");
+				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(ResolvePropertyName(\"{FirstCharToUpper(param.Name)}\", \"{param.Name}\", options));");
 				AppendLineIndented(sb, indentLevel + 4, $"System.Text.Json.JsonSerializer.Serialize(writer, {valueName}.{FirstCharToUpper(param.Name)}, options);");
 			}
 			AppendLineIndented(sb, indentLevel + 4, "writer.WriteEndObject();");
@@ -783,6 +786,8 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 		AppendLineIndented(sb, indentLevel, $"public class {converterName} : Newtonsoft.Json.JsonConverter<{className}>");
 		AppendLineIndented(sb, indentLevel, "{");
+		EmitNewtonsoftConverterHelpers(sb, indentLevel + 1);
+		sb.AppendLine();
 		AppendLineIndented(sb, indentLevel + 1, $"public override {className}? ReadJson(Newtonsoft.Json.JsonReader reader, System.Type objectType, {className}? existingValue, bool hasExistingValue, Newtonsoft.Json.JsonSerializer serializer)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
 		AppendLineIndented(sb, indentLevel + 2, "if (reader.TokenType == Newtonsoft.Json.JsonToken.Null) return null;");
@@ -792,7 +797,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, "{");
 		AppendLineIndented(sb, indentLevel + 3, "try");
 		AppendLineIndented(sb, indentLevel + 3, "{");
-		AppendLineIndented(sb, indentLevel + 4, "typeName = InferVariantFromProperties(obj);");
+		AppendLineIndented(sb, indentLevel + 4, "typeName = InferVariantFromProperties(obj, serializer);");
 		AppendLineIndented(sb, indentLevel + 3, "}");
 		AppendLineIndented(sb, indentLevel + 3, "catch (Newtonsoft.Json.JsonSerializationException)");
 		AppendLineIndented(sb, indentLevel + 3, "{");
@@ -811,7 +816,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			{
 				foreach (var param in variant.Parameters)
 				{
-					AppendLineIndented(sb, indentLevel + 3, $"var @{param.Name} = obj[\"{param.Name}\"]!.ToObject<{param.Type}>(serializer)!;");
+					AppendLineIndented(sb, indentLevel + 3, $"var @{param.Name} = obj.GetValue(ResolvePropertyName(\"{FirstCharToUpper(param.Name)}\", \"{param.Name}\", typeof({GetNestedTypeReference(className, $"{variant.Name}Variant")}), serializer), System.StringComparison.OrdinalIgnoreCase)!.ToObject<{param.Type}>(serializer)!;");
 				}
 				var args = string.Join(", ", variant.Parameters.Select(p => $"@{p.Name}"));
 				AppendLineIndented(sb, indentLevel + 3, $"return {className}.{variant.Name}({args});");
@@ -840,23 +845,24 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, "throw new Newtonsoft.Json.JsonSerializationException($\"Unknown variant type: {typeName}\");");
 		AppendLineIndented(sb, indentLevel + 1, "}");
 		sb.AppendLine();
-		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(Newtonsoft.Json.Linq.JObject obj)");
+		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(Newtonsoft.Json.Linq.JObject obj, Newtonsoft.Json.JsonSerializer serializer)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
-		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>();");
+		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);");
 		AppendLineIndented(sb, indentLevel + 2, "foreach (var prop in obj.Properties())");
 		AppendLineIndented(sb, indentLevel + 3, "properties.Add(prop.Name);");
 		sb.AppendLine();
 		AppendLineIndented(sb, indentLevel + 2, "string? match = null;");
 		foreach (var variant in union.Variants)
 		{
-			var parameterNames = variant.Parameters.Select(p => p.Name).ToList();
-			if (parameterNames.Count == 0)
+			var parameters = variant.Parameters.ToList();
+			var ownerType = GetNestedTypeReference(className, $"{variant.Name}Variant");
+			if (parameters.Count == 0)
 			{
 				AppendLineIndented(sb, indentLevel + 2, "if (properties.Count == 0)");
 			}
 			else
 			{
-				var conditions = string.Join(" && ", parameterNames.Select(p => $"properties.Contains(\"{p}\")"));
+				var conditions = string.Join(" && ", parameters.Select(p => $"properties.Contains(ResolvePropertyName(\"{FirstCharToUpper(p.Name)}\", \"{p.Name}\", typeof({ownerType}), serializer))"));
 				AppendLineIndented(sb, indentLevel + 2, $"if ({conditions})");
 			}
 			AppendLineIndented(sb, indentLevel + 2, "{");
@@ -884,7 +890,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			AppendLineIndented(sb, indentLevel + 4, $"writer.WriteValue(\"{variant.Name}\");");
 			foreach (var param in variant.Parameters)
 			{
-				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(\"{param.Name}\");");
+				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(ResolvePropertyName(\"{FirstCharToUpper(param.Name)}\", \"{param.Name}\", typeof({GetNestedTypeReference(className, $"{variant.Name}Variant")}), serializer));");
 				AppendLineIndented(sb, indentLevel + 4, $"serializer.Serialize(writer, {valueName}.{FirstCharToUpper(param.Name)});");
 			}
 			AppendLineIndented(sb, indentLevel + 4, "writer.WriteEndObject();");
@@ -916,6 +922,8 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 		AppendLineIndented(sb, indentLevel, $"public class {converterName} : System.Text.Json.Serialization.JsonConverter<{className}>");
 		AppendLineIndented(sb, indentLevel, "{");
+		EmitStjConverterHelpers(sb, indentLevel + 1);
+		sb.AppendLine();
 
 		AppendLineIndented(sb, indentLevel + 1, $"public override {className}? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
@@ -929,7 +937,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, "}");
 		AppendLineIndented(sb, indentLevel + 2, "else");
 		AppendLineIndented(sb, indentLevel + 2, "{");
-		AppendLineIndented(sb, indentLevel + 3, "typeName = InferVariantFromProperties(root);");
+		AppendLineIndented(sb, indentLevel + 3, "typeName = InferVariantFromProperties(root, options);");
 		AppendLineIndented(sb, indentLevel + 2, "}");
 		sb.AppendLine();
 		var isFirst = true;
@@ -946,7 +954,8 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 				{
 					var paramName = param.Name;
 					var paramType = param.Type;
-					AppendLineIndented(sb, indentLevel + 3, $"var @{paramName} = System.Text.Json.JsonSerializer.Deserialize<{paramType}>(root.GetProperty(\"{paramName}\").GetRawText(), options)!;");
+					var paramProp = FirstCharToUpper(param.Name);
+					AppendLineIndented(sb, indentLevel + 3, $"var @{paramName} = System.Text.Json.JsonSerializer.Deserialize<{paramType}>(GetMember(root, ResolvePropertyName(\"{paramProp}\", \"{paramName}\", options), options).GetRawText(), options)!;");
 				}
 
 				var args = string.Join(", ", variant.Parameters.Select(p => $"@{p.Name}"));
@@ -968,9 +977,10 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 1, "}");
 
 		sb.AppendLine();
-		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(System.Text.Json.JsonElement root)");
+		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(System.Text.Json.JsonElement root, System.Text.Json.JsonSerializerOptions options)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
-		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>();");
+		AppendLineIndented(sb, indentLevel + 2, "var comparer = options.PropertyNameCaseInsensitive ? System.StringComparer.OrdinalIgnoreCase : System.StringComparer.Ordinal;");
+		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>(comparer);");
 		AppendLineIndented(sb, indentLevel + 2, "foreach (var prop in root.EnumerateObject())");
 		AppendLineIndented(sb, indentLevel + 3, "properties.Add(prop.Name);");
 		sb.AppendLine();
@@ -979,15 +989,15 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		foreach (var variant in variants)
 		{
 			var variantName = variant.Name;
-			var paramNames = variant.Parameters.Select(p => p.Name).ToList();
+			var parameters = variant.Parameters.ToList();
 
-			if (paramNames.Count == 0)
+			if (parameters.Count == 0)
 			{
 				AppendLineIndented(sb, indentLevel + 2, "if (properties.Count == 0)");
 			}
 			else
 			{
-				var conditions = string.Join(" && ", paramNames.Select(p => $"properties.Contains(\"{p}\")"));
+				var conditions = string.Join(" && ", parameters.Select(p => $"properties.Contains(ResolvePropertyName(\"{FirstCharToUpper(p.Name)}\", \"{p.Name}\", options))"));
 				AppendLineIndented(sb, indentLevel + 2, $"if ({conditions})");
 			}
 
@@ -1024,7 +1034,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			{
 				var propName = FirstCharToUpper(param.Name);
 				var jsonName = param.Name;
-				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(\"{jsonName}\");");
+				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(ResolvePropertyName(\"{propName}\", \"{jsonName}\", options));");
 				AppendLineIndented(sb, indentLevel + 4, $"System.Text.Json.JsonSerializer.Serialize(writer, {lambdaParam}.{propName}, options);");
 			}
 
@@ -1050,6 +1060,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 		AppendLineIndented(sb, indentLevel, $"public class {converterName} : Newtonsoft.Json.JsonConverter<{className}>");
 		AppendLineIndented(sb, indentLevel, "{");
+		EmitNewtonsoftConverterHelpers(sb, indentLevel + 1);
 
 		AppendLineIndented(sb, indentLevel + 1, $"public override {className}? ReadJson(Newtonsoft.Json.JsonReader reader, System.Type objectType, {className}? existingValue, bool hasExistingValue, Newtonsoft.Json.JsonSerializer serializer)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
@@ -1058,7 +1069,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, $"var typeName = (string?)obj[\"{discriminatorFieldName}\"];");
 		AppendLineIndented(sb, indentLevel + 2, "if (typeName == null)");
 		AppendLineIndented(sb, indentLevel + 2, "{");
-		AppendLineIndented(sb, indentLevel + 3, "typeName = InferVariantFromProperties(obj);");
+		AppendLineIndented(sb, indentLevel + 3, "typeName = InferVariantFromProperties(obj, serializer);");
 		AppendLineIndented(sb, indentLevel + 2, "}");
 		sb.AppendLine();
 		var isFirstNewtonsoft = true;
@@ -1075,7 +1086,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 				{
 					var paramName = param.Name;
 					var paramType = param.Type;
-					AppendLineIndented(sb, indentLevel + 3, $"var @{paramName} = obj[\"{paramName}\"]!.ToObject<{paramType}>(serializer)!;");
+					AppendLineIndented(sb, indentLevel + 3, $"var @{paramName} = obj.GetValue(ResolvePropertyName(\"{FirstCharToUpper(paramName)}\", \"{paramName}\", typeof({GetNestedTypeReference(className, $"{variantName}Variant")}), serializer), System.StringComparison.OrdinalIgnoreCase)!.ToObject<{paramType}>(serializer)!;");
 				}
 
 				var args = string.Join(", ", variant.Parameters.Select(p => $"@{p.Name}"));
@@ -1097,9 +1108,9 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 1, "}");
 
 		sb.AppendLine();
-		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(Newtonsoft.Json.Linq.JObject obj)");
+		AppendLineIndented(sb, indentLevel + 1, "private static string InferVariantFromProperties(Newtonsoft.Json.Linq.JObject obj, Newtonsoft.Json.JsonSerializer serializer)");
 		AppendLineIndented(sb, indentLevel + 1, "{");
-		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>();");
+		AppendLineIndented(sb, indentLevel + 2, "var properties = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);");
 		AppendLineIndented(sb, indentLevel + 2, "foreach (var prop in obj.Properties())");
 		AppendLineIndented(sb, indentLevel + 3, "properties.Add(prop.Name);");
 		sb.AppendLine();
@@ -1108,15 +1119,16 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		foreach (var variant in variants)
 		{
 			var variantName = variant.Name;
-			var paramNames = variant.Parameters.Select(p => p.Name).ToList();
+			var parameters = variant.Parameters.ToList();
+			var ownerType = GetNestedTypeReference(className, $"{variantName}Variant");
 
-			if (paramNames.Count == 0)
+			if (parameters.Count == 0)
 			{
 				AppendLineIndented(sb, indentLevel + 2, "if (properties.Count == 0)");
 			}
 			else
 			{
-				var conditions = string.Join(" && ", paramNames.Select(p => $"properties.Contains(\"{p}\")"));
+				var conditions = string.Join(" && ", parameters.Select(p => $"properties.Contains(ResolvePropertyName(\"{FirstCharToUpper(p.Name)}\", \"{p.Name}\", typeof({ownerType}), serializer))"));
 				AppendLineIndented(sb, indentLevel + 2, $"if ({conditions})");
 			}
 
@@ -1155,7 +1167,7 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 			{
 				var jsonName = param.Name;
 				var propName = FirstCharToUpper(param.Name);
-				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(\"{jsonName}\");");
+				AppendLineIndented(sb, indentLevel + 4, $"writer.WritePropertyName(ResolvePropertyName(\"{propName}\", \"{jsonName}\", typeof({GetNestedTypeReference(className, $"{variantName}Variant")}), serializer));");
 				AppendLineIndented(sb, indentLevel + 4, $"serializer.Serialize(writer, {lambdaParam}.{propName});");
 			}
 
@@ -1167,6 +1179,41 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		AppendLineIndented(sb, indentLevel + 2, "writer.WriteEndObject();");
 		AppendLineIndented(sb, indentLevel + 1, "}");
 
+		AppendLineIndented(sb, indentLevel, "}");
+	}
+
+	private static void EmitStjConverterHelpers(StringBuilder sb, int indentLevel)
+	{
+		AppendLineIndented(sb, indentLevel, "private static string ResolvePropertyName(string clrName, string fallback, System.Text.Json.JsonSerializerOptions options)");
+		AppendLineIndented(sb, indentLevel + 1, "=> options.PropertyNamingPolicy is { } policy ? policy.ConvertName(clrName) : fallback;");
+		sb.AppendLine();
+		AppendLineIndented(sb, indentLevel, "private static System.Text.Json.JsonElement GetMember(System.Text.Json.JsonElement root, string name, System.Text.Json.JsonSerializerOptions options)");
+		AppendLineIndented(sb, indentLevel, "{");
+		AppendLineIndented(sb, indentLevel + 1, "if (root.TryGetProperty(name, out var element)) return element;");
+		AppendLineIndented(sb, indentLevel + 1, "if (options.PropertyNameCaseInsensitive)");
+		AppendLineIndented(sb, indentLevel + 1, "{");
+		AppendLineIndented(sb, indentLevel + 2, "foreach (var property in root.EnumerateObject())");
+		AppendLineIndented(sb, indentLevel + 2, "{");
+		AppendLineIndented(sb, indentLevel + 3, "if (string.Equals(property.Name, name, System.StringComparison.OrdinalIgnoreCase)) return property.Value;");
+		AppendLineIndented(sb, indentLevel + 2, "}");
+		AppendLineIndented(sb, indentLevel + 1, "}");
+		AppendLineIndented(sb, indentLevel + 1, "throw new System.Text.Json.JsonException($\"Property '{name}' not found.\");");
+		AppendLineIndented(sb, indentLevel, "}");
+	}
+
+	private static void EmitNewtonsoftConverterHelpers(StringBuilder sb, int indentLevel)
+	{
+		AppendLineIndented(sb, indentLevel, "private static string ResolvePropertyName(string clrName, string fallback, System.Type owner, Newtonsoft.Json.JsonSerializer serializer)");
+		AppendLineIndented(sb, indentLevel, "{");
+		AppendLineIndented(sb, indentLevel + 1, "if (serializer.ContractResolver.ResolveContract(owner) is Newtonsoft.Json.Serialization.JsonObjectContract objectContract)");
+		AppendLineIndented(sb, indentLevel + 1, "{");
+		AppendLineIndented(sb, indentLevel + 2, "foreach (var property in objectContract.Properties)");
+		AppendLineIndented(sb, indentLevel + 2, "{");
+		AppendLineIndented(sb, indentLevel + 3, "if (property.UnderlyingName == clrName)");
+		AppendLineIndented(sb, indentLevel + 4, "return property.PropertyName != null && property.PropertyName != clrName ? property.PropertyName : fallback;");
+		AppendLineIndented(sb, indentLevel + 2, "}");
+		AppendLineIndented(sb, indentLevel + 1, "}");
+		AppendLineIndented(sb, indentLevel + 1, "return fallback;");
 		AppendLineIndented(sb, indentLevel, "}");
 	}
 

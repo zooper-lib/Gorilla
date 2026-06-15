@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generated JSON converters now honor the caller's serializer configuration for variant property keys. `System.Text.Json` converters (flat and hierarchical) resolve keys through `JsonSerializerOptions.PropertyNamingPolicy` and honor `PropertyNameCaseInsensitive` when reading; the `Newtonsoft.Json` converter resolves keys through `serializer.ContractResolver` (e.g. `CamelCasePropertyNamesContractResolver`). Variant inference applies the same naming/case rules. The discriminator field name and value remain literal, and default-options/default-resolver output is byte-identical to previous releases.
+
 ## [1.3.0] — 2026-05-22
 
 ### Added
