@@ -342,6 +342,132 @@ public static class Usage
 }
 """;
 
+    internal const string OptionsAwareConverters = """
+using Stj = System.Text.Json;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
+using Zooper.Gorilla.Attributes;
+
+[DiscriminatedUnion]
+public sealed partial class Shape
+{
+    [Variant]
+    public static partial Shape Rectangle(string label, bool isVisible);
+
+    [Variant]
+    public static partial Shape Circle(double radius);
+}
+
+[DiscriminatedUnion]
+public abstract partial record Outcome
+{
+    [Variant]
+    public static partial Outcome Success(string contractId);
+
+    [DiscriminatedUnion]
+    public abstract partial record Rejected : Outcome
+    {
+        [Variant]
+        public static partial Rejected Validation(string fieldName);
+    }
+}
+
+public static class Usage
+{
+    private static string Describe(Shape shape) => shape.Match(
+        rectangle => $"{rectangle.Label}:{rectangle.IsVisible}",
+        circle => $"circle:{circle.Radius}");
+
+    // 4.1 STJ camelCase round-trip, multi-param variant
+    public static string StjCamelRoundTrip()
+    {
+        var options = new Stj.JsonSerializerOptions { PropertyNamingPolicy = Stj.JsonNamingPolicy.CamelCase };
+        var json = Stj.JsonSerializer.Serialize(Shape.Rectangle("box", true), options);
+        return Describe(Stj.JsonSerializer.Deserialize<Shape>(json, options)!);
+    }
+
+    // 4.1 (cont.) STJ snake_case actually transforms the key off the PascalCase property
+    public static string StjSnakeKey()
+        => Stj.JsonSerializer.Serialize(
+            Shape.Rectangle("box", true),
+            new Stj.JsonSerializerOptions { PropertyNamingPolicy = Stj.JsonNamingPolicy.SnakeCaseLower });
+
+    // 4.2 STJ hierarchical round-trip under a naming policy (snake_case)
+    public static string StjHierarchicalRoundTrip()
+    {
+        var options = new Stj.JsonSerializerOptions { PropertyNamingPolicy = Stj.JsonNamingPolicy.SnakeCaseLower };
+        Outcome value = Outcome.Rejected.Validation("email");
+        var json = Stj.JsonSerializer.Serialize(value, options);
+        var back = Stj.JsonSerializer.Deserialize<Outcome>(json, options)!;
+        return back.Match(
+            success => $"success:{success.ContractId}",
+            rejected => rejected.Match(validation => $"validation:{validation.FieldName}"));
+    }
+
+    // 4.3 STJ case-insensitive deserialize, mixed-case input keys
+    public static string StjCaseInsensitive()
+    {
+        var options = new Stj.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        const string json = "{\"$type\":\"Rectangle\",\"LABEL\":\"box\",\"ISVISIBLE\":true}";
+        return Describe(Stj.JsonSerializer.Deserialize<Shape>(json, options)!);
+    }
+
+    // 4.4 STJ inference under camelCase, no discriminator field present
+    public static string StjInferenceCamel()
+    {
+        var options = new Stj.JsonSerializerOptions { PropertyNamingPolicy = Stj.JsonNamingPolicy.CamelCase };
+        const string json = "{\"label\":\"box\",\"isVisible\":true}";
+        return Describe(Stj.JsonSerializer.Deserialize<Shape>(json, options)!);
+    }
+
+    // 4.5 Newtonsoft CamelCase resolver round-trip (flat)
+    public static string NewtonsoftCamelRoundTrip()
+    {
+        var settings = new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() };
+        var json = JsonConvert.SerializeObject(Shape.Rectangle("box", true), settings);
+        return Describe(JsonConvert.DeserializeObject<Shape>(json, settings)!);
+    }
+
+    // 4.5 (cont.) Newtonsoft hierarchical round-trip with CamelCase resolver
+    public static string NewtonsoftHierarchicalRoundTrip()
+    {
+        var settings = new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() };
+        Outcome value = Outcome.Rejected.Validation("email");
+        var json = JsonConvert.SerializeObject(value, settings);
+        var back = JsonConvert.DeserializeObject<Outcome>(json, settings)!;
+        return back.Match(
+            success => $"success:{success.ContractId}",
+            rejected => rejected.Match(validation => $"validation:{validation.FieldName}"));
+    }
+
+    // 4.5 (cont.) Newtonsoft snake_case actually transforms the key
+    public static string NewtonsoftSnakeKey()
+    {
+        var settings = new JsonSerializerSettings
+        {
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new SnakeCaseNamingStrategy() }
+        };
+        return JsonConvert.SerializeObject(Shape.Rectangle("box", true), settings);
+    }
+
+    // 4.6 Newtonsoft inference under camelCase
+    public static string NewtonsoftInferenceCamel()
+    {
+        var settings = new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() };
+        const string json = "{\"label\":\"box\",\"isVisible\":true}";
+        return Describe(JsonConvert.DeserializeObject<Shape>(json, settings)!);
+    }
+
+    // 4.7 Default-options golden output (STJ)
+    public static string StjDefaultJson()
+        => Stj.JsonSerializer.Serialize(Shape.Rectangle("box", true));
+
+    // 4.7 Default-resolver golden output (Newtonsoft)
+    public static string NewtonsoftDefaultJson()
+        => JsonConvert.SerializeObject(Shape.Rectangle("box", true));
+}
+""";
+
     internal const string HierarchicalJsonRoundTrip = """
 using System.Text.Json;
 using Newtonsoft.Json;

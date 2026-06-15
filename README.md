@@ -61,6 +61,7 @@ Gorilla can generate JSON converters automatically when your project references 
 - `Newtonsoft.Json` support emits a generated `JsonConverter<T>` and applies `[Newtonsoft.Json.JsonConverterAttribute(...)]`
 - the discriminator field defaults to `$type`
 - converter generation can be overridden per union with `GenerateJsonConverter`, `GenerateNewtonsoftJsonConverter`, and `DiscriminatorFieldName`
+- variant property keys honor the caller's serializer configuration: `System.Text.Json` converters resolve keys through `JsonSerializerOptions.PropertyNamingPolicy` (e.g. `CamelCase`, `SnakeCaseLower`) and honor `PropertyNameCaseInsensitive` when reading; `Newtonsoft.Json` converters resolve keys through `serializer.ContractResolver` (e.g. `CamelCasePropertyNamesContractResolver`). The discriminator field name and value are configuration/data and stay literal — they are not transformed by the naming policy. Default options/resolver output is unchanged.
 
 ```csharp
 using System.Text.Json;
