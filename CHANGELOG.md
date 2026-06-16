@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-06-16
+
+### Fixed
+
+- **Source-hint collision for same-named unions in different namespaces.** The generated file hint included the containing-type path and class name but omitted the namespace, so two `[DiscriminatedUnion]` types with the same simple name in different namespaces (e.g. `Construction.Aggregates.SectorEvolver` and `Trade.Aggregates.SectorEvolver`), or same-named nested unions under same-named containers, produced the same `.g.cs` hint. The collision caused the host to drop or duplicate the generated sources, surfacing in consuming projects as `CS8795` (missing partial implementation) or `CS0101`/`CS0111` (duplicate type/member). Source hints are now fully qualified with the namespace.
+
 ## [1.4.0] — 2026-06-16
 
 ### Changed
