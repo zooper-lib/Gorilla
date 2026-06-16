@@ -260,13 +260,22 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 	private static string GetSourceHint(UnionModel union)
 	{
-		if (union.ContainingTypes.Count == 0)
+		// The hint name must be fully qualified so that same-named unions in different
+		// namespaces (or same-named nested unions under same-named containers) do not
+		// collide on the same generated file name. A hint collision causes the host to
+		// drop or duplicate generated sources, surfacing as CS8795/CS0101/CS0111 in
+		// consuming projects.
+		var segments = new List<string>();
+
+		if (!string.IsNullOrWhiteSpace(union.Namespace))
 		{
-			return $"{union.ClassName}.g.cs";
+			segments.Add(union.Namespace);
 		}
 
-		var containingPath = string.Join(".", union.ContainingTypes.Select(static type => type.Name));
-		return $"{containingPath}.{union.ClassName}.g.cs";
+		segments.AddRange(union.ContainingTypes.Select(static type => type.Name));
+		segments.Add(union.ClassName);
+
+		return $"{string.Join(".", segments)}.g.cs";
 	}
 
 	private static string GenerateFlatSource(

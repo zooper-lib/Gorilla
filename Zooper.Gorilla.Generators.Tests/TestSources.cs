@@ -468,6 +468,66 @@ public static class Usage
 }
 """;
 
+    // Same simple-name unions declared in two different namespaces. Before the fix the
+    // source hint ignored the namespace, so both produced "SectorEvolver.g.cs" and the
+    // collision dropped/duplicated generated sources (CS8795/CS0101/CS0111 downstream).
+    internal const string SameNameUnionsInDifferentNamespaces = """
+using Zooper.Gorilla.Attributes;
+
+namespace Modules.Economy.Domain.Construction.Aggregates
+{
+    [DiscriminatedUnion]
+    public sealed partial class SectorEvolver
+    {
+        [Variant]
+        public static partial SectorEvolver Evolve(string id);
+    }
+}
+
+namespace Modules.Economy.Domain.Trade.Aggregates
+{
+    [DiscriminatedUnion]
+    public sealed partial class SectorEvolver
+    {
+        [Variant]
+        public static partial SectorEvolver Evolve(string id);
+    }
+}
+""";
+
+    // Same nested union name under same-named containing types, in two different
+    // namespaces. The containing-type path matched ("Sector.Evolver"), so the namespace
+    // was the only differentiator and was previously omitted from the hint.
+    internal const string SameNameNestedUnionsInDifferentNamespaces = """
+using Zooper.Gorilla.Attributes;
+
+namespace Modules.Economy.Domain.Construction.Aggregates
+{
+    public partial class Sector
+    {
+        [DiscriminatedUnion]
+        public sealed partial class Evolver
+        {
+            [Variant]
+            public static partial Evolver Evolve(string id);
+        }
+    }
+}
+
+namespace Modules.Economy.Domain.Trade.Aggregates
+{
+    public partial class Sector
+    {
+        [DiscriminatedUnion]
+        public sealed partial class Evolver
+        {
+            [Variant]
+            public static partial Evolver Evolve(string id);
+        }
+    }
+}
+""";
+
     internal const string HierarchicalJsonRoundTrip = """
 using System.Text.Json;
 using Newtonsoft.Json;
