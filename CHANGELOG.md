@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Variant-named `Match`/`Switch` on flat unions.** Generated unions now declare `Match`/`Switch` overloads whose parameters are named after the variants (camelCased), hiding OneOf's positional `f0`/`f1`/… versions. Call sites can use named arguments in any order (`error.Match(concurrencyConflict: …, conflict: …)`), so reordering variants in the union declaration becomes a compile error instead of a silent handler remap. Existing positional calls are unaffected. Hierarchical unions already generated a variant-named `Match`.
+
 ## [1.4.1] — 2026-06-16
 
 ### Fixed

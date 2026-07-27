@@ -116,6 +116,24 @@ var description = payload.Match(
 
 See the full sample in [Zooper.Gorilla.Sample/NestedContractSamples.cs](Zooper.Gorilla.Sample/NestedContractSamples.cs).
 
+## 🏷️ Variant-named `Match` / `Switch`
+
+`Match` and `Switch` parameters are named after the variants, so handlers can be passed as named
+arguments in any order. Reordering variants in the union declaration then becomes a compile error
+instead of a silent handler remap:
+
+```csharp
+var description = payload.Match(
+	standard: standard => $"standard:{standard.Category}",
+	created: _ => "created");
+
+payload.Switch(
+	created: _ => Console.WriteLine("created"),
+	standard: standard => Console.WriteLine(standard.Category));
+```
+
+Positional calls still work exactly as before.
+
 ## 🌲 Hierarchical Unions
 
 Abstract unions can contain nested sub-unions that also flow through the outer union API.

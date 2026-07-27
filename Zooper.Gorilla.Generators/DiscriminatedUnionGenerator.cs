@@ -331,6 +331,8 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 
 		GenerateVariantMethods(sb, className, variants, indentLevel + 1);
 
+		GenerateNamedMatchAndSwitch(sb, className, variants, indentLevel + 1);
+
 		GenerateVariantClasses(sb, variants, indentLevel + 1);
 
 		AppendLineIndented(sb, indentLevel, "}");
@@ -495,6 +497,36 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 				: $"new {variantTypeName}({args})";
 
 			AppendLineIndented(sb, indentLevel, $"{methodSignature} => new {className}({newVariantInstance});");
+		}
+	}
+
+	/// <summary>
+	/// Emits Match/Switch overloads whose parameters are named after the variants, hiding OneOf's
+	/// positional f0/f1/... versions so call sites can use named arguments and a variant reorder
+	/// becomes a compile error instead of a silent remap.
+	/// </summary>
+	private static void GenerateNamedMatchAndSwitch(
+		StringBuilder sb,
+		string className,
+		EquatableArray<VariantModel> variants,
+		int indentLevel)
+	{
+		var handlerNames = variants.Select(v => "@" + GetHandlerName(v.Name)).ToList();
+		var variantTypeNames = variants.Select(v => $"{className}.{v.Name}Variant").ToList();
+		var args = string.Join(", ", handlerNames);
+
+		EmitOverload("public new TResult Match<TResult>(", "Func", ", TResult", $") => base.Match({args});");
+		EmitOverload("public new void Switch(", "Action", string.Empty, $") => base.Switch({args});");
+
+		void EmitOverload(string header, string delegateType, string resultTypeArg, string body)
+		{
+			sb.AppendLine();
+			AppendLineIndented(sb, indentLevel, header);
+			for (var i = 0; i < handlerNames.Count; i++)
+			{
+				var line = $"{delegateType}<{variantTypeNames[i]}{resultTypeArg}> {handlerNames[i]}";
+				AppendLineIndented(sb, indentLevel + 1, i < handlerNames.Count - 1 ? line + "," : line + body);
+			}
 		}
 	}
 
