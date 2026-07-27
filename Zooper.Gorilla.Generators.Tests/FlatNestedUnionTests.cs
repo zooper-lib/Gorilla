@@ -14,6 +14,17 @@ public class FlatNestedUnionTests
     }
 
     [Fact]
+    public void FlatUnion_SupportsVariantNamedMatchAndSwitchArguments()
+    {
+        var result = GeneratorTestHelper.Run(TestSources.NamedMatchUsage);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+
+        var assembly = GeneratorTestHelper.EmitToAssembly(result);
+        Assert.Equal("conflict:duplicate", GeneratorTestHelper.InvokeStaticStringMethod(assembly, "Usage", "Run"));
+    }
+
+    [Fact]
     public void NestedUnionInsideClass_GeneratesFactoryMethodsAndMatch()
     {
         var result = GeneratorTestHelper.Run(TestSources.NestedUnionInsideClass);
