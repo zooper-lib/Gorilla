@@ -39,6 +39,44 @@ public static class Usage
 }
 """;
 
+    internal const string NamedMatchUsage = """
+using Zooper.Gorilla.Attributes;
+
+[DiscriminatedUnion]
+public sealed partial class PersistError
+{
+    [Variant]
+    public static partial PersistError StorageUnavailable();
+
+    [Variant]
+    public static partial PersistError Conflict(string reason);
+
+    [Variant]
+    public static partial PersistError ConcurrencyConflict(string reason);
+}
+
+public static class Usage
+{
+    public static string Run()
+    {
+        var error = PersistError.Conflict("duplicate");
+
+        // Named arguments, deliberately out of declaration order.
+        var matched = error.Match(
+            conflict: c => "conflict:" + c.Reason,
+            concurrencyConflict: cc => "concurrency:" + cc.Reason,
+            storageUnavailable: _ => "storage");
+
+        error.Switch(
+            concurrencyConflict: _ => { },
+            storageUnavailable: _ => { },
+            conflict: _ => { });
+
+        return matched;
+    }
+}
+""";
+
     internal const string NestedUnionInsideClass = """
 using Zooper.Gorilla.Attributes;
 
