@@ -8,7 +8,7 @@ namespace Zooper.Gorilla.Sample;
 ///            or: { "$type": "Company", "companyName": "Acme Corp" }
 /// </summary>
 [DiscriminatedUnion]
-public partial class CreateProfileDto
+public abstract partial class CreateProfileDto
 {
     [Variant]
     public static partial CreateProfileDto Person(string firstName, string lastName);

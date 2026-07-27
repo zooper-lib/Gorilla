@@ -4,12 +4,6 @@ namespace Zooper.Gorilla.Attributes;
 public sealed class DiscriminatedUnionAttribute : Attribute
 {
     /// <summary>
-    /// When true, emits [ValidateNever] to prevent ASP.NET model validation from walking into OneOfBase properties.
-    /// Auto-enabled when the consuming project references Microsoft.AspNetCore.Mvc.Core. Set to false to suppress.
-    /// </summary>
-    public bool SuppressValidation { get; set; }
-
-    /// <summary>
     /// The JSON property name used as the discriminator field. Defaults to "$type".
     /// </summary>
     public string DiscriminatorFieldName { get; set; } = "$type";

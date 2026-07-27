@@ -7,7 +7,7 @@ namespace Zooper.Gorilla.Sample;
 /// A sample class which shows how to use the DiscriminatedUnion attribute.
 /// </summary>
 [DiscriminatedUnion]
-public partial class SignUpError
+public abstract partial class SignUpError
 {
 	[Variant]
 	public static partial SignUpError ServiceUnavailable();

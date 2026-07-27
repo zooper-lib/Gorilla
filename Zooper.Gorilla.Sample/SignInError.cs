@@ -3,7 +3,7 @@
 namespace Zooper.Gorilla.Sample;
 
 [DiscriminatedUnion]
-public partial class SignInError
+public abstract partial class SignInError
 {
 	[Variant]
 	public static partial SignInError ServiceUnavailable();
