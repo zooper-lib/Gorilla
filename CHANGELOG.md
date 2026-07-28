@@ -5,7 +5,131 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] — 2026-07-28
+
+The OneOf dependency is removed and every union now uses one
+representation: an `abstract` base type whose variants are `sealed` nested subtypes deriving from it.
+This deletes the wrapper representation along with its 9-variant ceiling, its positional API, and the
+third-party dependency in every shipped package. The hierarchical half of the generator — shipped
+since 1.3.0, never OneOf-based — becomes the only emit path.
+
+### Removed
+
+- **BREAKING — the OneOf dependency.** Removed from the generator project and from the nuspec of every
+  shipped package (declared in 1.0.4 through 1.5.0). Generated code no longer names it. A project that
+  uses OneOf types in its own code and was compiling on Gorilla's transitive reference must add its own
+  `PackageReference`.
+- **BREAKING — the `OneOfBase` wrapper shape**, along with `Value`, `Index`, and the positional
+  `IsT0`/`AsT0`/`TryPickT0` accessors. `Value` is meaningless once the union *is* the value; `Index`
+  exposed positional identity that nothing consumed and that variant naming exists to eliminate.
+- **BREAKING — `SuppressValidation` and the emitted `[ValidateNever]`**, together with the
+  compilation-wide ASP.NET type probe and the config plumbing behind them. They existed solely to stop
+  `ValidationVisitor` from invoking a throwing `AsT0` getter; that getter no longer exists (`AsX` is now
+  a method). Verified against the framework: `ValidationVisitor` resolves metadata from the *declared*
+  type and never reaches a variant's properties, so removing the attribute does not begin enforcing
+  validation on variant payloads. This supersedes the `[ValidateNever]` rationale documented under
+  1.0.0 below.
+- **BREAKING — variant guessing when no discriminator is present** (`InferVariantFromProperties`, in
+  both converters). It matched on property subsets, so a variant whose parameters were a superset of
+  another's could never be read, and any foreign object containing a matching field deserialized as the
+  wrong variant. If discriminator-less interop turns out to be a real requirement, exact-set matching is
+  the design to reinstate — not the subset heuristic.
+
+### Changed
+
+- **BREAKING — `[DiscriminatedUnion]` types must be declared `abstract`.** The generator reports the new
+  `ZGOR003` error rather than injecting the modifier, so the declaration never disagrees with the type it
+  produces. `sealed` unions become a compile error (`CS0418`).
+- **BREAKING — union constructors are emitted `private`, closing the hierarchy.** A hand-written subtype
+  declared outside the union body (`public sealed record Cancelled(...) : Outcome;`) is now a compile
+  error (`CS0122`) at the declaration instead of an `InvalidOperationException` at dispatch. This closes a
+  hole hierarchical unions have had since 1.3.0; the affected code was already failing at runtime.
+- **BREAKING — equality and `ToString` are left to the language.** No `Equals`, `GetHashCode`, or
+  `ToString` is generated. A `class` union keeps reference equality (unchanged from 1.x, where
+  `OneOfBase` compared wrapped variant instances); a `record` union gets value equality. `record` unions
+  are newly possible — `OneOfBase` forbade them (`CS8864`) — and are now the better default.
+- **BREAKING — struct unions are impossible**, not merely unsupported: variants must derive from the
+  union.
+- Deserialization failures report *why* a payload was unrecognized. A missing discriminator names the
+  expected field; an unrecognized one names the value seen. Both name the union, and the reason survives
+  the sub-union search instead of degrading to `Unknown variant type:` with a blank name.
+- The generated `Variant` suffix is now real public API rather than an inference-only detail, since type
+  patterns are how payloads are read.
+- **BREAKING (source-visible, not binary) — `Match`'s result type parameter is renamed `T` → `TResult`**,
+  in all generated output, generic or not. Method type parameter names are not part of the API — call
+  sites pass type arguments positionally, so `value.Match<string>(…)` compiles unchanged — but the name
+  is visible in IntelliSense. One emitted shape rather than one per union kind. If `TResult` is already
+  in scope, from the union's own parameters or a containing type's, it is suffix-uniquified
+  (`TResult1`, …), which is what keeps a generic union free of `CS0693`.
+- **Fixed — a union serialized by its runtime type kept no discriminator.** `System.Text.Json` resolves
+  `[JsonConverter]` on the type being written, which for an ASP.NET minimal API returning a factory call,
+  or any `JsonSerializer.Serialize(object)`, is the *variant* rather than the union. The output was
+  `{"value":"hello"}` and nothing could read it back. The converter attribute is now emitted on each
+  generated variant class as well, and both converters override `CanConvert` to claim the hierarchy.
+  Affects every union, generic or not. The Newtonsoft attribute is deliberately *not* duplicated onto
+  variants — it is honoured by inheritance, and duplicating it would resolve `objectType` as the variant.
+- **Fixed — a converter emitted inside a generic containing type did not compile** (`CS0416`: an
+  attribute argument cannot name a type parameter). Converters are now emitted at the innermost enclosing
+  scope with no type parameters, absorbing the skipped containers' type parameters and constraints and
+  taking their names as a prefix (`Outer_LeafJsonConverter<TOuter, T>`). When no containing type is
+  generic — every union that compiles today — the converter's name and position are byte-identical, so
+  existing manual registrations keep compiling.
+- Generated source hints append arity to any path segment with arity above zero (`Ns.Foo_1.g.cs`,
+  `Ns.Outer_1.Leaf.g.cs`), so `Foo` and `Foo<T>` no longer collide on one file. Arity-zero hints are
+  byte-identical, so no existing generated file is renamed.
+- Compile-time diagnostics name a union in display form (`Disclosure<T>`, `Outcome<int>`) rather than by
+  bare name, now that two arities of one name can coexist. Message text emitted *into* generated code
+  keeps the bare name — the closed type is not knowable when the string is generated, and
+  `GetType().Name` already reports the actual type at runtime.
+
+### Added
+
+- **Generic unions.** A `[DiscriminatedUnion]` type may declare type parameters and constraints:
+  `Option<T>`, `Result<TValue, TError>`, `Paged<T>`. Factories, `Match`, `Switch`, accessors, and both
+  JSON converters carry the parameters through, and generic containing types are reopened with their own
+  parameter lists. Constraint clauses are captured fully qualified from the symbol, so they resolve in a
+  generated file regardless of the user's `using` directives. Call sites name the closed type
+  (`Disclosure<string>.Visible("x")`); no non-generic companion class is emitted, and no variance support
+  — `CS1960` puts it out of reach for a class or record by construction. Both are explained in the README.
+- **JSON converters for generic unions under both serializers, in the same release.** `System.Text.Json`
+  registration goes through a generated non-generic `JsonConverterFactory`; Newtonsoft through a
+  non-generic delegating shim that forwards to the same generic converter body. Both walk base types to
+  the closed union, so a variant resolves to its union's type arguments. The two runtime `MakeGenericType`
+  sites carry `#pragma warning disable IL3050`; see the Native AOT note in the README.
+- **Diagnostic `ZGOR005`** (warning) for a nested union that derives from a *different construction* of
+  its enclosing union (`Rejected : Outcome<int>` inside `Outcome<T>`). Such a type is not a subtype of
+  that construction, so it is silently absent from the parent's `Match` and the omission surfaces only at
+  runtime. Sub-union membership stays declared by the base clause and is never inferred from nesting:
+  nesting also means "payload type scoped inside its owner", and only the base clause separates the two.
+
+- **`Switch` on every union.** Hierarchical unions never had one (`CS1061` before this release); without
+  it, collapsing to one emit path would have removed `Switch` from every flat union.
+- **Variant-named accessors for every variant *and* sub-union:** `IsX` (a `bool` property), `AsX()` (a
+  method), and `TryPickX(out …)` (a method, with no remainder parameter). `AsX` is deliberately a method
+  so that reflection-based property walkers — ASP.NET validation, debugger watch windows, IntelliSense
+  tooltips, object mappers — never invoke a getter that throws. Note that a union declaring both a
+  variant `X` and its own member `IsX`/`AsX`/`TryPickX` now fails with `CS0102`.
+- **Diagnostic `ZGOR003`** (error) for a non-`abstract` union declaration, shipping with a Roslyn
+  `CodeFixProvider` — the first in this package — that removes `sealed` and adds `abstract`, preserving
+  every other modifier. "Fix all occurrences in solution" applies the whole migration at once.
+- **Diagnostic `ZGOR004`** (error), a backstop rejecting a struct union.
+- No ceiling on the number of variants. Unions of ten or more variants are covered by tests.
+
+### Unchanged
+
+- **The wire format.** Serialized output is byte-identical — `{"$type":"Card","number":"4111"}`,
+  `{"$type":"Cash"}` — so no stored or in-flight document changes meaning. Naming-policy and
+  contract-resolver handling from 1.4.0 is unaffected. This holds on every path that worked before, and
+  now also on the paths that silently dropped the discriminator.
+- **`Match` call sites.** The `T` → `TResult` rename needs no source change: type arguments are passed
+  positionally.
+
+### Migration
+
+Upgrade, run the `ZGOR003` code fix's "Fix all occurrences in solution", then handle the residue by
+hand: positional accessors to variant-named ones, `Value`/`Index` removals, hand-written subtypes,
+`SuppressValidation` arguments, discriminator-less payloads, and any OneOf `PackageReference` that was
+previously transitive. See the migration section of the README.
 
 ## [1.5.0] — 2026-07-27
 

@@ -17,8 +17,10 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all"/>
+        <!-- Compile-time only: the Roslyn host supplies the workspace assemblies the code fix
+             needs at runtime. Shipping them as a package dependency would pull the whole Roslyn
+             stack into every consuming project. -->
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.8.0" PrivateAssets="all"/>
-        <PackageReference Include="OneOf" Version="3.0.263"/>
     </ItemGroup>
 
     <!-- This is required to include the analyzer in the package -->
