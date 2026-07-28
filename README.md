@@ -150,6 +150,72 @@ Missing discriminator field '$type' when deserializing 'CreateProfileDto'.
 Unrecognized discriminator value 'Nonexistent' when deserializing 'CreateProfileDto'.
 ```
 
+### Serializing by runtime type
+
+A union value keeps its discriminator no matter which static type it is written through — the union,
+one of its generated variants, or `object`:
+
+```csharp
+object boxed = CreateProfileDto.Person("John", "Doe");
+JsonSerializer.Serialize(boxed);        // {"$type":"Person","firstName":"John", …}
+
+var variant = (CreateProfileDto.PersonVariant)CreateProfileDto.Person("John", "Doe");
+JsonSerializer.Serialize(variant);      // same output
+```
+
+This matters for any path where the runtime type reaches the serializer rather than the declared one —
+an ASP.NET minimal API returning a factory call directly, a `Serialize(object)`, a logging sink. The
+`System.Text.Json` converter attribute is emitted on each generated variant class as well as on the
+union, and both converters claim the whole hierarchy through `CanConvert`.
+
+### Generic unions
+
+`[DiscriminatedUnion]` types may declare type parameters, and their converters work under both
+serializers:
+
+```csharp
+[DiscriminatedUnion]
+public abstract partial record Disclosure<T>
+{
+	[Variant]
+	public static partial Disclosure<T> Visible(T value);
+
+	[Variant]
+	public static partial Disclosure<T> NotProvided();
+}
+
+var json = JsonSerializer.Serialize(Disclosure<string>.Visible("hello"));
+// {"$type":"Visible","value":"hello"}
+```
+
+Call sites name the closed type — `Disclosure<string>.Visible("x")` — because C# infers method type
+arguments from arguments only, never from the return type, so a non-generic companion class would
+shorten some factories and not others with no rule visible at the call site.
+
+Because an attribute argument cannot name a type parameter, a generic union's attribute names a
+generated non-generic registration type (a `JsonConverterFactory` for `System.Text.Json`, a delegating
+shim for `Newtonsoft.Json`) that closes the converter over the value's type arguments. The same applies
+to a union nested inside a *generic* containing type, generic or not itself: its converter is emitted
+outside that container, absorbs the container's type parameters, and is named with the container's name
+as a prefix — `Outer<TOuter>.Leaf<T>` gets `Outer_LeafJsonConverter<TOuter, T>`. When no containing type
+is generic, the converter's name and position are unchanged from earlier releases, so an existing
+`settings.Converters.Add(new Outer.LeafJsonConverter())` keeps compiling.
+
+**Native AOT:** a generic union's converter is constructed at runtime via `MakeGenericType`, because the
+set of closed constructions is not knowable when the code is generated. The closed union types must
+therefore be rooted. The `IL3050` warning is suppressed at the generated call sites rather than surfaced,
+since it lands in a file the consumer cannot edit.
+
+**Variance is not supported and nothing is emitted for it.** `Disclosure<string>` is not usable where
+`Disclosure<object>` is expected. `CS1960` restricts variant type parameters to interfaces and delegates,
+and a Gorilla union must be a class or record — variants derive from it and its private constructor
+closes the hierarchy — so the annotation is out of reach by construction. A covariant interface emitted
+beside the union would not help much either: it cannot carry `Match` (a variant type is invariant in `T`,
+so handlers would receive only the bare payload), and it does not apply to value types at all
+(`CS0266` — variance rides on reference conversions, and boxing is not one). A generic method,
+`static string Describe<T>(Disclosure<T> value)`, covers most "works for any payload" needs. If you have
+a genuine need, the union is `partial`: declare your own interface and add it on your own part.
+
 ## 🧩 Nested Unions
 
 Nested unions can stay attached to the owning contract or payload type instead of being flattened into top-level declarations.

@@ -1,36 +1,4 @@
-# nested-union-generation
-
-## Purpose
-
-Defines how the Gorilla source generator handles `[DiscriminatedUnion]` types that are nested inside other types and that form hierarchical (union / sub-union) families. This covers preserving the containing type chain in generated output, generating variant factory methods, `Match<TResult>` and `Switch` dispatch, unique source hints, record support, how sub-union membership is declared, the `ZGOR002` and `ZGOR005` diagnostics, and JSON converters — all through a single emit path, with no separate treatment for unions that declare no sub-unions and none for unions that declare type parameters.
-
-## Requirements
-
-### Requirement: Containing type chain is preserved in generated output
-The generator SHALL read the full containing type chain of an annotated union symbol and emit the generated partial type wrapped in the correct sequence of partial type declarations, matching the containing structure declared in user code.
-
-#### Scenario: Union nested inside a single interface
-- **WHEN** a `[DiscriminatedUnion]` abstract partial class is declared inside a single containing interface
-- **THEN** the generated file declares the interface as `partial` and places the union partial class inside it
-
-#### Scenario: Union nested inside multiple levels
-- **WHEN** a `[DiscriminatedUnion]` abstract partial class is nested inside an interface that is itself nested inside another interface
-- **THEN** the generated file declares both containing interfaces as `partial`, nested in declaration order (outermost first)
-
-#### Scenario: Top-level union is unaffected
-- **WHEN** a `[DiscriminatedUnion]` type is declared at namespace scope with no containing type
-- **THEN** the generated file is namespace-wrapped only, with no extra partial scaffold
-
-### Requirement: Variant factory methods are generated for nested unions
-The generator SHALL generate implementation parts for all `[Variant]`-attributed partial factory methods on a union that is nested inside other types, using the same logic applied to top-level unions.
-
-#### Scenario: Unit variant inside nested union
-- **WHEN** a nested `[DiscriminatedUnion]` declares a `[Variant]` method with no parameters
-- **THEN** the generator emits an implementation returning a new instance of the corresponding `*Variant` class
-
-#### Scenario: Payload variant inside nested union
-- **WHEN** a nested `[DiscriminatedUnion]` declares a `[Variant]` method with one or more parameters
-- **THEN** the generator emits an implementation returning a new instance of the corresponding `*Variant` class, forwarding all parameters
+## MODIFIED Requirements
 
 ### Requirement: Match method is generated for nested unions
 The generator SHALL emit a `Match<TResult>(...)` method for any `[DiscriminatedUnion]` type regardless of nesting depth, with one typed handler parameter per declared variant and per nested sub-union. The result type parameter is named `TResult` for every union, generic or not, and is uniquified against every type parameter in scope — the containing types' parameters together with the union's own.
@@ -77,17 +45,6 @@ The generator SHALL recognise `RecordDeclarationSyntax` nodes in addition to `Cl
 - **WHEN** `[DiscriminatedUnion]` is applied to an `abstract partial record` that declares type parameters
 - **THEN** the generator produces factory methods and a `Match<TResult>` method carrying those type parameters through
 
-### Requirement: Diagnostic is emitted when a containing type is not partial
-The generator SHALL emit a `ZGOR002` warning diagnostic when any type in the containing chain of an annotated union is not declared `partial`, naming the non-partial type and the union it contains.
-
-#### Scenario: Non-partial outer interface
-- **WHEN** a `[DiscriminatedUnion]` is nested inside an interface that is not declared `partial`
-- **THEN** the generator emits a `ZGOR002` warning identifying the interface by name
-
-#### Scenario: Partial containing types produce no diagnostic
-- **WHEN** all containing types in the chain are declared `partial`
-- **THEN** no `ZGOR002` diagnostic is emitted
-
 ### Requirement: Hierarchical union — abstract outer union generates Match and factory methods
 The generator SHALL generate `Match<TResult>(...)`, `Switch(...)`, and variant infrastructure for every `[DiscriminatedUnion]` type using a single type-switch dispatch strategy, so that any union can serve as an inheritance base for nested sub-unions. There SHALL be no separate emit path for unions that declare no sub-unions, and no separate emit path for unions that declare type parameters.
 
@@ -126,28 +83,7 @@ The generator SHALL ensure that an inner `[DiscriminatedUnion]` declared as a su
 - **WHEN** a sub-union is declared inside a generic union and derives from it as constructed with the enclosing union's own type parameters
 - **THEN** it is collected as a sub-union and participates in the parent's `Match`
 
-### Requirement: JSON converters are generated for nested and hierarchical unions
-The generator SHALL emit JSON converters for all unions using a single type-pattern dispatch design. Reading SHALL resolve the variant from the discriminator field, falling back to the nested sub-unions in turn; writing SHALL type-switch on the value.
-
-#### Scenario: JSON round-trip for a nested union
-- **WHEN** a nested `[DiscriminatedUnion]` abstract partial class value is serialized and then deserialized
-- **THEN** the deserialized value has the same variant and property values as the original
-
-#### Scenario: JSON round-trip for an outer union — leaf variant
-- **WHEN** an outer union value holding a leaf variant is serialized and deserialized
-- **THEN** the deserialized value holds the same leaf variant
-
-#### Scenario: JSON round-trip for an outer union — sub-union value
-- **WHEN** an outer union value holding an inner sub-union instance is serialized and deserialized
-- **THEN** the deserialized value is an instance of the correct inner sub-union type with all properties preserved
-
-#### Scenario: Nested sub-union value serialized independently
-- **WHEN** a value of an inner sub-union type is serialized using the inner type's converter
-- **THEN** the result can be deserialized back to the same inner sub-union variant
-
-#### Scenario: Converters share one implementation shape
-- **WHEN** converters are generated for a union with sub-unions and for a union without
-- **THEN** both are produced by the same emit code, with no `OneOfBase`-based variant present
+## ADDED Requirements
 
 ### Requirement: Sub-union membership is declared by the base clause and never inferred from nesting
 A nested `[DiscriminatedUnion]` SHALL be treated as a sub-union of its enclosing union when, and only when, it declares that union as its base type. The generator SHALL NOT infer membership from nesting alone and SHALL NOT emit a base clause the user did not write.

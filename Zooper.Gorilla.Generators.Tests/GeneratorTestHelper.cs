@@ -38,6 +38,22 @@ internal static class GeneratorTestHelper
         Assert.True(result.Errors.Length == 0, FormatDiagnostics(result.Errors));
     }
 
+    /// <summary>
+    /// Stands in for building the generated output with TreatWarningsAsErrors: a consumer must not be
+    /// broken by a warning in a file they cannot edit. Only diagnostics located in generated trees
+    /// count — the test source itself is allowed to be sloppy.
+    /// </summary>
+    public static void AssertGeneratedOutputHasNoWarnings(GeneratorTestResult result)
+    {
+        var warnings = result.AllDiagnostics
+            .Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Warning)
+            .Where(static diagnostic =>
+                diagnostic.Location.SourceTree?.FilePath.EndsWith(".g.cs", StringComparison.Ordinal) == true)
+            .ToArray();
+
+        Assert.True(warnings.Length == 0, FormatDiagnostics(warnings));
+    }
+
     public static Assembly EmitToAssembly(GeneratorTestResult result)
     {
         using var assemblyStream = new MemoryStream();

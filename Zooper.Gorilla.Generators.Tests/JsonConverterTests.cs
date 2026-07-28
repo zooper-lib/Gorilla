@@ -107,4 +107,106 @@ public class JsonConverterTests
     [Fact] // byte-identical default output (Newtonsoft)
     public void Newtonsoft_DefaultResolver_OutputUnchanged()
         => Assert.Equal("{\"$type\":\"Rectangle\",\"label\":\"box\",\"isVisible\":true}", RunOptionsAware("NewtonsoftDefaultJson"));
+
+    // Every test above serializes through the union's declared type. A value written by its runtime
+    // type resolves [JsonConverter] on the variant instead, and without the attribute there it is
+    // written by default logic with no discriminator — nothing can read the payload back.
+
+    private static string RunRuntimeTypeDiscriminator(string method)
+    {
+        var result = GeneratorTestHelper.Run(GenericUnionSources.RuntimeTypeDiscriminator);
+        GeneratorTestHelper.AssertNoErrors(result);
+        return GeneratorTestHelper.InvokeStaticStringMethod(GeneratorTestHelper.EmitToAssembly(result), "Usage", method);
+    }
+
+    [Fact]
+    public void Stj_NonGenericUnion_ThroughVariantStaticType_KeepsDiscriminator()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}", RunRuntimeTypeDiscriminator("ThroughVariantStaticType"));
+
+    [Fact]
+    public void Stj_NonGenericUnion_ThroughObject_KeepsDiscriminator()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}", RunRuntimeTypeDiscriminator("ThroughObject"));
+
+    [Fact] // {} would be indistinguishable from any other payload-free variant
+    public void Stj_PayloadFreeVariant_ThroughVariantStaticType_KeepsDiscriminator()
+        => Assert.Equal("{\"$type\":\"NotProvided\"}", RunRuntimeTypeDiscriminator("PayloadFreeThroughVariantStaticType"));
+
+    [Fact]
+    public void Newtonsoft_NonGenericUnion_ThroughObject_KeepsDiscriminator()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}", RunRuntimeTypeDiscriminator("NewtonsoftThroughObject"));
+
+    [Fact]
+    public void NewtonsoftConverterAttribute_IsNotEmittedOnVariantClasses()
+    {
+        var result = GeneratorTestHelper.Run(GenericUnionSources.RuntimeTypeDiscriminator);
+        var source = result.GeneratedSources["Plain.g.cs"];
+
+        // Once, on the union declaration. Newtonsoft honours it by inheritance; duplicating it would
+        // make the converter resolve objectType as the variant and return a union instance.
+        Assert.Equal(1, source.Split("[Newtonsoft.Json.JsonConverterAttribute(").Length - 1);
+        // Three times for System.Text.Json: the union and both variants.
+        Assert.Equal(3, source.Split("[System.Text.Json.Serialization.JsonConverter(").Length - 1);
+    }
+
+    private static string RunGenericUnionJson(string method)
+    {
+        var result = GeneratorTestHelper.Run(GenericUnionSources.GenericUnionJson);
+        GeneratorTestHelper.AssertNoErrors(result);
+        return GeneratorTestHelper.InvokeStaticStringMethod(GeneratorTestHelper.EmitToAssembly(result), "Usage", method);
+    }
+
+    [Fact]
+    public void Stj_GenericUnion_StringPayload_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}|visible:hello|True", RunGenericUnionJson("StjStringRoundTrip"));
+
+    [Fact]
+    public void Stj_GenericUnion_IntPayload_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":42}|visible:42|True", RunGenericUnionJson("StjIntRoundTrip"));
+
+    [Fact] // identical wire format to System.Text.Json
+    public void Newtonsoft_GenericUnion_StringPayload_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}|visible:hello|True", RunGenericUnionJson("NewtonsoftStringRoundTrip"));
+
+    [Fact]
+    public void Newtonsoft_GenericUnion_IntPayload_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":42}|visible:42|True", RunGenericUnionJson("NewtonsoftIntRoundTrip"));
+
+    [Fact] // the factory resolves the closed union from the variant's base types
+    public void Stj_GenericUnion_ThroughVariantStaticType_KeepsDiscriminator()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}", RunGenericUnionJson("StjThroughVariantStaticType"));
+
+    [Fact]
+    public void Stj_GenericUnion_ThroughObject_KeepsDiscriminator()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}", RunGenericUnionJson("StjThroughObject"));
+
+    [Fact] // a generic-type-definition comparison would answer false for the variant
+    public void NewtonsoftShim_CanConvert_AcceptsTheUnionAndItsVariants()
+        => Assert.Equal("True:True:False", RunGenericUnionJson("ShimCanConvert"));
+
+    [Fact]
+    public void NewtonsoftShim_ManuallyRegistered_SerializesAVariantWithItsDiscriminator()
+        => Assert.Equal("{\"$type\":\"Visible\",\"value\":\"hello\"}", RunGenericUnionJson("ShimManualRegistration"));
+
+    [Fact]
+    public void Stj_GenericUnion_AsDtoProperty_RoundTrips()
+        => Assert.Equal("{\"Payload\":{\"$type\":\"Visible\",\"value\":\"in-dto\"}}|visible:in-dto", RunGenericUnionJson("DtoPropertyRoundTrip"));
+
+    private static string RunUnionsInGenericContainers(string method)
+    {
+        var result = GeneratorTestHelper.Run(GenericUnionSources.UnionsInGenericContainers);
+        GeneratorTestHelper.AssertNoErrors(result);
+        return GeneratorTestHelper.InvokeStaticStringMethod(GeneratorTestHelper.EmitToAssembly(result), "Usage", method);
+    }
+
+    [Fact]
+    public void Stj_NonGenericUnionInGenericContainer_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Tagged\",\"tag\":\"t\"}|t", RunUnionsInGenericContainers("NonGenericLeafRoundTrip"));
+
+    [Fact]
+    public void Stj_GenericUnionInGenericContainer_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Pair\",\"key\":7,\"value\":\"v\"}|7:v", RunUnionsInGenericContainers("GenericLeafStjRoundTrip"));
+
+    [Fact]
+    public void Newtonsoft_GenericUnionInGenericContainer_RoundTrips()
+        => Assert.Equal("{\"$type\":\"Pair\",\"key\":7,\"value\":\"v\"}|7:v", RunUnionsInGenericContainers("GenericLeafNewtonsoftRoundTrip"));
 }

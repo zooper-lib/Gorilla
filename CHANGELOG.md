@@ -55,8 +55,52 @@ since 1.3.0, never OneOf-based — becomes the only emit path.
   the sub-union search instead of degrading to `Unknown variant type:` with a blank name.
 - The generated `Variant` suffix is now real public API rather than an inference-only detail, since type
   patterns are how payloads are read.
+- **BREAKING (source-visible, not binary) — `Match`'s result type parameter is renamed `T` → `TResult`**,
+  in all generated output, generic or not. Method type parameter names are not part of the API — call
+  sites pass type arguments positionally, so `value.Match<string>(…)` compiles unchanged — but the name
+  is visible in IntelliSense. One emitted shape rather than one per union kind. If `TResult` is already
+  in scope, from the union's own parameters or a containing type's, it is suffix-uniquified
+  (`TResult1`, …), which is what keeps a generic union free of `CS0693`.
+- **Fixed — a union serialized by its runtime type kept no discriminator.** `System.Text.Json` resolves
+  `[JsonConverter]` on the type being written, which for an ASP.NET minimal API returning a factory call,
+  or any `JsonSerializer.Serialize(object)`, is the *variant* rather than the union. The output was
+  `{"value":"hello"}` and nothing could read it back. The converter attribute is now emitted on each
+  generated variant class as well, and both converters override `CanConvert` to claim the hierarchy.
+  Affects every union, generic or not. The Newtonsoft attribute is deliberately *not* duplicated onto
+  variants — it is honoured by inheritance, and duplicating it would resolve `objectType` as the variant.
+- **Fixed — a converter emitted inside a generic containing type did not compile** (`CS0416`: an
+  attribute argument cannot name a type parameter). Converters are now emitted at the innermost enclosing
+  scope with no type parameters, absorbing the skipped containers' type parameters and constraints and
+  taking their names as a prefix (`Outer_LeafJsonConverter<TOuter, T>`). When no containing type is
+  generic — every union that compiles today — the converter's name and position are byte-identical, so
+  existing manual registrations keep compiling.
+- Generated source hints append arity to any path segment with arity above zero (`Ns.Foo_1.g.cs`,
+  `Ns.Outer_1.Leaf.g.cs`), so `Foo` and `Foo<T>` no longer collide on one file. Arity-zero hints are
+  byte-identical, so no existing generated file is renamed.
+- Compile-time diagnostics name a union in display form (`Disclosure<T>`, `Outcome<int>`) rather than by
+  bare name, now that two arities of one name can coexist. Message text emitted *into* generated code
+  keeps the bare name — the closed type is not knowable when the string is generated, and
+  `GetType().Name` already reports the actual type at runtime.
 
 ### Added
+
+- **Generic unions.** A `[DiscriminatedUnion]` type may declare type parameters and constraints:
+  `Option<T>`, `Result<TValue, TError>`, `Paged<T>`. Factories, `Match`, `Switch`, accessors, and both
+  JSON converters carry the parameters through, and generic containing types are reopened with their own
+  parameter lists. Constraint clauses are captured fully qualified from the symbol, so they resolve in a
+  generated file regardless of the user's `using` directives. Call sites name the closed type
+  (`Disclosure<string>.Visible("x")`); no non-generic companion class is emitted, and no variance support
+  — `CS1960` puts it out of reach for a class or record by construction. Both are explained in the README.
+- **JSON converters for generic unions under both serializers, in the same release.** `System.Text.Json`
+  registration goes through a generated non-generic `JsonConverterFactory`; Newtonsoft through a
+  non-generic delegating shim that forwards to the same generic converter body. Both walk base types to
+  the closed union, so a variant resolves to its union's type arguments. The two runtime `MakeGenericType`
+  sites carry `#pragma warning disable IL3050`; see the Native AOT note in the README.
+- **Diagnostic `ZGOR005`** (warning) for a nested union that derives from a *different construction* of
+  its enclosing union (`Rejected : Outcome<int>` inside `Outcome<T>`). Such a type is not a subtype of
+  that construction, so it is silently absent from the parent's `Match` and the omission surfaces only at
+  runtime. Sub-union membership stays declared by the base clause and is never inferred from nesting:
+  nesting also means "payload type scoped inside its owner", and only the base clause separates the two.
 
 - **`Switch` on every union.** Hierarchical unions never had one (`CS1061` before this release); without
   it, collapsing to one emit path would have removed `Switch` from every flat union.
@@ -75,7 +119,10 @@ since 1.3.0, never OneOf-based — becomes the only emit path.
 
 - **The wire format.** Serialized output is byte-identical — `{"$type":"Card","number":"4111"}`,
   `{"$type":"Cash"}` — so no stored or in-flight document changes meaning. Naming-policy and
-  contract-resolver handling from 1.4.0 is unaffected.
+  contract-resolver handling from 1.4.0 is unaffected. This holds on every path that worked before, and
+  now also on the paths that silently dropped the discriminator.
+- **`Match` call sites.** The `T` → `TResult` rename needs no source change: type arguments are passed
+  positionally.
 
 ### Migration
 
