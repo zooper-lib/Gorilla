@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The next release is a major version. The OneOf dependency is removed and every union now uses one
+representation: an `abstract` base type whose variants are `sealed` nested subtypes deriving from it.
+This deletes the wrapper representation along with its 9-variant ceiling, its positional API, and the
+third-party dependency in every shipped package. The hierarchical half of the generator — shipped
+since 1.3.0, never OneOf-based — becomes the only emit path.
+
+### Removed
+
+- **BREAKING — the OneOf dependency.** Removed from the generator project and from the nuspec of every
+  shipped package (declared in 1.0.4 through 1.5.0). Generated code no longer names it. A project that
+  uses OneOf types in its own code and was compiling on Gorilla's transitive reference must add its own
+  `PackageReference`.
+- **BREAKING — the `OneOfBase` wrapper shape**, along with `Value`, `Index`, and the positional
+  `IsT0`/`AsT0`/`TryPickT0` accessors. `Value` is meaningless once the union *is* the value; `Index`
+  exposed positional identity that nothing consumed and that variant naming exists to eliminate.
+- **BREAKING — `SuppressValidation` and the emitted `[ValidateNever]`**, together with the
+  compilation-wide ASP.NET type probe and the config plumbing behind them. They existed solely to stop
+  `ValidationVisitor` from invoking a throwing `AsT0` getter; that getter no longer exists (`AsX` is now
+  a method). Verified against the framework: `ValidationVisitor` resolves metadata from the *declared*
+  type and never reaches a variant's properties, so removing the attribute does not begin enforcing
+  validation on variant payloads. This supersedes the `[ValidateNever]` rationale documented under
+  1.0.0 below.
+- **BREAKING — variant guessing when no discriminator is present** (`InferVariantFromProperties`, in
+  both converters). It matched on property subsets, so a variant whose parameters were a superset of
+  another's could never be read, and any foreign object containing a matching field deserialized as the
+  wrong variant. If discriminator-less interop turns out to be a real requirement, exact-set matching is
+  the design to reinstate — not the subset heuristic.
+
+### Changed
+
+- **BREAKING — `[DiscriminatedUnion]` types must be declared `abstract`.** The generator reports the new
+  `ZGOR003` error rather than injecting the modifier, so the declaration never disagrees with the type it
+  produces. `sealed` unions become a compile error (`CS0418`).
+- **BREAKING — union constructors are emitted `private`, closing the hierarchy.** A hand-written subtype
+  declared outside the union body (`public sealed record Cancelled(...) : Outcome;`) is now a compile
+  error (`CS0122`) at the declaration instead of an `InvalidOperationException` at dispatch. This closes a
+  hole hierarchical unions have had since 1.3.0; the affected code was already failing at runtime.
+- **BREAKING — equality and `ToString` are left to the language.** No `Equals`, `GetHashCode`, or
+  `ToString` is generated. A `class` union keeps reference equality (unchanged from 1.x, where
+  `OneOfBase` compared wrapped variant instances); a `record` union gets value equality. `record` unions
+  are newly possible — `OneOfBase` forbade them (`CS8864`) — and are now the better default.
+- **BREAKING — struct unions are impossible**, not merely unsupported: variants must derive from the
+  union.
+- Deserialization failures report *why* a payload was unrecognized. A missing discriminator names the
+  expected field; an unrecognized one names the value seen. Both name the union, and the reason survives
+  the sub-union search instead of degrading to `Unknown variant type:` with a blank name.
+- The generated `Variant` suffix is now real public API rather than an inference-only detail, since type
+  patterns are how payloads are read.
+
+### Added
+
+- **`Switch` on every union.** Hierarchical unions never had one (`CS1061` before this release); without
+  it, collapsing to one emit path would have removed `Switch` from every flat union.
+- **Variant-named accessors for every variant *and* sub-union:** `IsX` (a `bool` property), `AsX()` (a
+  method), and `TryPickX(out …)` (a method, with no remainder parameter). `AsX` is deliberately a method
+  so that reflection-based property walkers — ASP.NET validation, debugger watch windows, IntelliSense
+  tooltips, object mappers — never invoke a getter that throws. Note that a union declaring both a
+  variant `X` and its own member `IsX`/`AsX`/`TryPickX` now fails with `CS0102`.
+- **Diagnostic `ZGOR003`** (error) for a non-`abstract` union declaration, shipping with a Roslyn
+  `CodeFixProvider` — the first in this package — that removes `sealed` and adds `abstract`, preserving
+  every other modifier. "Fix all occurrences in solution" applies the whole migration at once.
+- **Diagnostic `ZGOR004`** (error), a backstop rejecting a struct union.
+- No ceiling on the number of variants. Unions of ten or more variants are covered by tests.
+
+### Unchanged
+
+- **The wire format.** Serialized output is byte-identical — `{"$type":"Card","number":"4111"}`,
+  `{"$type":"Cash"}` — so no stored or in-flight document changes meaning. Naming-policy and
+  contract-resolver handling from 1.4.0 is unaffected.
+
+### Migration
+
+Upgrade, run the `ZGOR003` code fix's "Fix all occurrences in solution", then handle the residue by
+hand: positional accessors to variant-named ones, `Value`/`Index` removals, hand-written subtypes,
+`SuppressValidation` arguments, discriminator-less payloads, and any OneOf `PackageReference` that was
+previously transitive. See the migration section of the README.
+
 ## [1.5.0] — 2026-07-27
 
 ### Added

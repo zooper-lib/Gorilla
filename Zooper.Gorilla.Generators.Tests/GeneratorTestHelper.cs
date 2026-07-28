@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using OneOf;
 using Xunit;
 using Zooper.Gorilla.Attributes;
 using Zooper.Gorilla.Generators;
@@ -73,7 +72,6 @@ internal static class GeneratorTestHelper
             typeof(Enumerable).Assembly,
             typeof(System.Text.Json.JsonSerializer).Assembly,
             typeof(Newtonsoft.Json.JsonConvert).Assembly,
-            typeof(OneOfBase<>).Assembly,
             typeof(DiscriminatedUnionAttribute).Assembly,
         })
         {

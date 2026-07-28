@@ -1,10 +1,4 @@
-# json-converter-options-awareness
-
-## Purpose
-
-Generated JSON converters (System.Text.Json and Newtonsoft) must respect the caller's serializer configuration — property naming policies, contract resolvers, and case-insensitive matching — when reading and writing variant properties of discriminated unions, while leaving discriminator field names/values and the attribute surface unchanged.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: STJ converters resolve variant property names via naming policy
 
@@ -26,18 +20,6 @@ Generated System.Text.Json converters SHALL resolve variant property names throu
 - **WHEN** a value is serialized with default `JsonSerializerOptions` (no naming policy)
 - **THEN** the output is byte-identical to the pre-change generated output
 
-### Requirement: STJ read honors case-insensitive property matching
-
-Generated System.Text.Json converters SHALL honor `JsonSerializerOptions.PropertyNameCaseInsensitive` when reading variant properties. Because STJ `JsonElement.GetProperty` is always case-sensitive, the converter SHALL perform a case-insensitive member lookup when the option is enabled.
-
-#### Scenario: Deserialize mixed-case keys when case-insensitive
-- **WHEN** JSON whose property keys differ only in case from the expected names is deserialized with `PropertyNameCaseInsensitive = true`
-- **THEN** deserialization succeeds and produces the correct value
-
-#### Scenario: Missing property throws
-- **WHEN** a required variant property is absent from the JSON
-- **THEN** the converter throws a `JsonException` naming the missing property
-
 ### Requirement: Newtonsoft converter resolves names via contract resolver
 
 The generated Newtonsoft converter SHALL resolve variant property names through `serializer.ContractResolver.ResolveContract(type)` of the variant's value type, so contract resolvers such as `CamelCasePropertyNamesContractResolver` apply to variant property keys for both writing and reading. Reads SHALL honor case-insensitive lookup where the contract/settings imply it.
@@ -54,14 +36,6 @@ The generated Newtonsoft converter SHALL resolve variant property names through 
 - **WHEN** a value is serialized with a default `JsonSerializer` (no custom resolver)
 - **THEN** the output is byte-identical to the pre-change generated output
 
-### Requirement: Discriminator field name and value bypass naming policy
-
-The discriminator field name (configured via `DiscriminatorFieldName`) and the discriminator value (the variant's C# name) SHALL NOT be subjected to the naming policy or contract resolver in either System.Text.Json or Newtonsoft converters. They are configuration/data, not model property names.
-
-#### Scenario: Discriminator field unaffected by naming policy
-- **WHEN** a value is serialized with a camelCase naming policy / contract resolver
-- **THEN** the discriminator field key remains the configured value (e.g. `$type`) and the discriminator value remains the variant's C# name
-
 ### Requirement: No new attribute knobs
 
 This change SHALL NOT add property-naming or discriminator-value options to `DiscriminatedUnionAttribute`. The attribute surface SHALL remain `DiscriminatorFieldName`, `GenerateJsonConverter`, `GenerateNewtonsoftJsonConverter`.
@@ -69,3 +43,11 @@ This change SHALL NOT add property-naming or discriminator-value options to `Dis
 #### Scenario: Attribute surface unchanged
 - **WHEN** the generator is built after this change
 - **THEN** `DiscriminatedUnionAttribute` exposes only those three members, with no naming-related members and no `SuppressValidation`
+
+## REMOVED Requirements
+
+### Requirement: Variant inference respects naming policy and case sensitivity
+
+**Reason**: `InferVariantFromProperties` is deleted. Property-set inference used subset matching, which cannot read a variant whose parameters are a superset of another's, silently misidentifies foreign objects containing a matching field, and carries no information at all when two variants share a field set. It only ever ran on JSON that Gorilla did not write, and no consumer of that kind is known. With the heuristic gone there is no inference path for naming policy or case sensitivity to apply to.
+
+**Migration**: Include the discriminator field in payloads handed to a generated converter. Gorilla has always written it, so payloads produced by Gorilla are unaffected; only hand-written or foreign JSON needs updating. Callers previously relying on inference now receive an explicit error naming the missing discriminator field instead of a possibly-wrong variant — see the `union-json-discriminator` capability. If discriminator-less interop later proves to be a real requirement, exact-set matching is the design to reinstate, not the subset heuristic.

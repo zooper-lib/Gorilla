@@ -22,7 +22,7 @@ public partial interface IEntityCreatedContract
     public partial interface IEntityPayload
     {
         [DiscriminatedUnion]
-        public sealed partial class V1 : IEntityPayload
+        public abstract partial class V1 : IEntityPayload
         {
             [Variant]
             public static partial V1 Created();
