@@ -11,7 +11,7 @@ public class HierarchicalUnionTests
         var result = GeneratorTestHelper.Run(TestSources.AbstractHierarchicalUnion);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        Assert.Contains("public T Match<T>(", result.GeneratedSources["ContractOutcome.g.cs"]);
+        Assert.Contains("public TResult Match<TResult>(", result.GeneratedSources["ContractOutcome.g.cs"]);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class HierarchicalUnionTests
         var result = GeneratorTestHelper.Run(TestSources.AbstractHierarchicalUnion);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        Assert.Contains("Func<Rejected, T> rejected", result.GeneratedSources["ContractOutcome.g.cs"]);
+        Assert.Contains("Func<Rejected, TResult> rejected", result.GeneratedSources["ContractOutcome.g.cs"]);
     }
 
     [Fact]

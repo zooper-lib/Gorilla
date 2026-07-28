@@ -9,3 +9,4 @@ ZGOR001 | Zooper.Gorilla | Error | Discriminated union generator failure
 ZGOR002 | Zooper.Gorilla | Warning | Containing type must be partial
 ZGOR003 | Zooper.Gorilla | Error | Discriminated union must be abstract
 ZGOR004 | Zooper.Gorilla | Error | Discriminated union cannot be a struct
+ZGOR005 | Zooper.Gorilla | Warning | Nested union derives from a different construction of its enclosing union

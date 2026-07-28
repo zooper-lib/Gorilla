@@ -31,7 +31,7 @@
 - [x] 4.4 Emit `As<Name>()` as a method (never a property) returning the subtype, throwing `InvalidOperationException` naming the requested and actual variants on mismatch
 - [x] 4.5 Emit `bool TryPick<Name>(out <Subtype> value)` as a method with no remainder parameter
 - [x] 4.6 Make `GetTypeKeyword` (`:147`) reject `TypeKind.Struct` instead of mapping it to `struct`/`record struct`, reporting a diagnostic and emitting nothing
-  - **Deviation:** rejection is an explicit guard (`GetDeclarationError` → `ZGOR004`) rather than a change to `GetTypeKeyword`, which is also used for *containing* types — a union nested inside a `partial struct` is legitimate and would have broken. Note that `[DiscriminatedUnion]` already targets `AttributeTargets.Class`, so the compiler rejects a struct union with `CS0592` before the generator sees it; `ZGOR004` is a backstop on the generator's own invariant.
+  - **Deviation:** rejection is an explicit guard (`GetDeclarationError` → `ZGOR004`) rather than a change to `GetTypeKeyword`, which is also used for _containing_ types — a union nested inside a `partial struct` is legitimate and would have broken. Note that `[DiscriminatedUnion]` already targets `AttributeTargets.Class`, so the compiler rejects a struct union with `CS0592` before the generator sees it; `ZGOR004` is a backstop on the generator's own invariant.
 - [x] 4.7 Confirm no `Equals`, `GetHashCode`, or `ToString` is emitted for unions or variants
   - Confirmed. **Finding:** because `IsX` accessors are public properties, a `record` union's synthesized `ToString` now lists them: `CardVariant { IsCard = True, Number = 4111 }` rather than the design's illustrative `CardVariant { Number = 4111 }`. Still the language default with the type name not repeated, but noisier than the spec scenario's example.
 - [x] 4.8 Confirm variant payloads are still emitted as a constructor plus get-only properties, not positional records, so record equality compares backing fields
@@ -84,5 +84,5 @@
 - [x] 9.6 Write the migration section: `sealed`/plain → `abstract` (with the code fix), positional accessors → variant-named, `Value`/`Index` removed, hand-written subtypes now a compile error, discriminator now required, and OneOf needing its own `PackageReference` where it was previously transitive
 - [x] 9.7 Add the CHANGELOG entry for the major version, marking each breaking change; note that `CHANGELOG.md:103` documents the now-removed `[ValidateNever]` rationale
   - Entry sits under `## [Unreleased]` — the version heading is added when the release is cut.
-- [ ] 9.8 Bump the version to the next major in `Directory.Build.props`
+- [x] 9.8 Bump the version to the next major in `Directory.Build.props`
   - **Not done — deliberate.** Version bumps are handled manually by the maintainer. `Directory.Build.props` stays at 1.5.0.
