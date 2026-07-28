@@ -351,10 +351,17 @@ public class DiscriminatedUnionGenerator : IIncrementalGenerator
 		GenerateConstructor(sb, union.ClassName, indentLevel + 1);
 		sb.AppendLine();
 		GenerateVariantMethods(sb, union, indentLevel + 1);
-		sb.AppendLine();
-		GenerateMatchMethod(sb, union, indentLevel + 1);
-		sb.AppendLine();
-		GenerateSwitchMethod(sb, union, indentLevel + 1);
+
+		// A union declaring neither a [Variant] nor a sub-union has nothing to dispatch over, and
+		// Match/Switch with an empty parameter list would not compile.
+		if (GetSubtypes(union).Count > 0)
+		{
+			sb.AppendLine();
+			GenerateMatchMethod(sb, union, indentLevel + 1);
+			sb.AppendLine();
+			GenerateSwitchMethod(sb, union, indentLevel + 1);
+		}
+
 		GenerateAccessors(sb, union, indentLevel + 1);
 		GenerateVariantClasses(sb, union, indentLevel + 1);
 		AppendLineIndented(sb, indentLevel, "}");

@@ -1040,6 +1040,213 @@ public abstract partial record Pay
 }
 """;
 
+    // A union that declares nothing. Degenerate, but it must not emit source that fails to compile.
+    internal const string VariantlessUnion = """
+using Zooper.Gorilla.Attributes;
+
+[DiscriminatedUnion]
+public abstract partial record Empty
+{
+}
+""";
+
+    // A union whose only subtypes are sub-unions — no [Variant] of its own.
+    internal const string SubUnionsOnlyUnion = """
+using System.Text.Json;
+using Zooper.Gorilla.Attributes;
+
+[DiscriminatedUnion]
+public abstract partial record Outcome
+{
+    [DiscriminatedUnion]
+    public abstract partial record Rejected : Outcome
+    {
+        [Variant]
+        public static partial Rejected Validation(string field);
+    }
+}
+
+public static class Usage
+{
+    public static string MatchAndRoundTrip()
+    {
+        Outcome value = Outcome.Rejected.Validation("email");
+        var json = JsonSerializer.Serialize(value);
+        var back = JsonSerializer.Deserialize<Outcome>(json)!;
+
+        var switched = "none";
+        back.Switch(rejected => switched = "rejected");
+
+        return json + "|" + back.Match(rejected => rejected.AsValidation().Field) + "|" + switched;
+    }
+}
+""";
+
+    // Payloads beyond string/bool/int: collections, enums, nullables, and another union.
+    internal const string PayloadTypes = """
+using System.Collections.Generic;
+using Stj = System.Text.Json;
+using Newtonsoft.Json;
+using Zooper.Gorilla.Attributes;
+
+public enum Severity { Low, High }
+
+[DiscriminatedUnion]
+public abstract partial record Inner
+{
+    [Variant]
+    public static partial Inner Leaf(int value);
+}
+
+[DiscriminatedUnion]
+public abstract partial record Signal
+{
+    [Variant]
+    public static partial Signal Tagged(List<string> tags, Severity severity);
+
+    [Variant]
+    public static partial Signal Optional(string? note);
+
+    [Variant]
+    public static partial Signal Wrapped(Inner payload);
+}
+
+public static class Usage
+{
+    private static string Describe(Signal signal) => signal.Match(
+        tagged => "tagged:" + string.Join("+", tagged.Tags) + ":" + tagged.Severity,
+        optional => "optional:" + (optional.Note ?? "<null>"),
+        wrapped => "wrapped:" + wrapped.Payload.AsLeaf().Value);
+
+    public static string StjCollectionAndEnum()
+    {
+        var json = Stj.JsonSerializer.Serialize<Signal>(Signal.Tagged(new List<string> { "a", "b" }, Severity.High));
+        return json + "|" + Describe(Stj.JsonSerializer.Deserialize<Signal>(json)!);
+    }
+
+    public static string StjNullPayload()
+    {
+        var json = Stj.JsonSerializer.Serialize<Signal>(Signal.Optional(null));
+        return json + "|" + Describe(Stj.JsonSerializer.Deserialize<Signal>(json)!);
+    }
+
+    public static string StjUnionInsideUnion()
+    {
+        var json = Stj.JsonSerializer.Serialize<Signal>(Signal.Wrapped(Inner.Leaf(7)));
+        return json + "|" + Describe(Stj.JsonSerializer.Deserialize<Signal>(json)!);
+    }
+
+    public static string NewtonsoftCollectionAndEnum()
+    {
+        var json = JsonConvert.SerializeObject(Signal.Tagged(new List<string> { "a", "b" }, Severity.High));
+        return json + "|" + Describe(JsonConvert.DeserializeObject<Signal>(json)!);
+    }
+
+    public static string NewtonsoftUnionInsideUnion()
+    {
+        var json = JsonConvert.SerializeObject(Signal.Wrapped(Inner.Leaf(7)));
+        return json + "|" + Describe(JsonConvert.DeserializeObject<Signal>(json)!);
+    }
+
+    public static string NewtonsoftNullValue()
+        => JsonConvert.DeserializeObject<Signal>("null") is null ? "null" : "not-null";
+}
+""";
+
+    internal const string ConfiguredDiscriminatorRoundTrip = """
+using Stj = System.Text.Json;
+using Newtonsoft.Json;
+using Zooper.Gorilla.Attributes;
+
+[DiscriminatedUnion(DiscriminatorFieldName = "kind")]
+public abstract partial record Kinded
+{
+    [Variant]
+    public static partial Kinded Alpha(string name);
+
+    [Variant]
+    public static partial Kinded Beta();
+}
+
+[DiscriminatedUnion]
+public abstract partial record Pay
+{
+    [Variant]
+    public static partial Pay Card(string number);
+}
+
+public static class Usage
+{
+    private static string Describe(Kinded value) => value.Match(
+        alpha => "alpha:" + alpha.Name,
+        beta => "beta");
+
+    public static string StjRoundTrip()
+    {
+        var json = Stj.JsonSerializer.Serialize<Kinded>(Kinded.Alpha("first"));
+        return json + "|" + Describe(Stj.JsonSerializer.Deserialize<Kinded>(json)!);
+    }
+
+    public static string NewtonsoftRoundTrip()
+    {
+        var json = JsonConvert.SerializeObject(Kinded.Alpha("first"));
+        return json + "|" + Describe(JsonConvert.DeserializeObject<Kinded>(json)!);
+    }
+
+    // Gorilla writes the variant's C# name; a differently-cased value still resolves.
+    public static string StjDiscriminatorIsCaseInsensitive()
+        => Stj.JsonSerializer.Deserialize<Pay>("{\"$type\":\"card\",\"number\":\"4111\"}")!
+            .Match(card => "card:" + card.Number);
+
+    public static string NewtonsoftDiscriminatorIsCaseInsensitive()
+        => JsonConvert.DeserializeObject<Pay>("{\"$type\":\"CARD\",\"number\":\"4111\"}")!
+            .Match(card => "card:" + card.Number);
+}
+""";
+
+    internal const string NewtonsoftEdgeCases = """
+using Newtonsoft.Json;
+using Zooper.Gorilla.Attributes;
+
+[DiscriminatedUnion]
+public abstract partial record SignInError
+{
+    [Variant] public static partial SignInError ServiceUnavailable();
+    [Variant] public static partial SignInError InvalidCredentials();
+    [Variant] public static partial SignInError InternalError();
+}
+
+[DiscriminatedUnion]
+public abstract partial record Message
+{
+    [Variant] public static partial Message Text(string body);
+    [Variant] public static partial Message Memo(string body);
+}
+
+public static class Usage
+{
+    public static string FieldlessRoundTrip()
+    {
+        var json = JsonConvert.SerializeObject(SignInError.InvalidCredentials());
+        return json + "|" + JsonConvert.DeserializeObject<SignInError>(json)!.Match(
+            serviceUnavailable => "serviceUnavailable",
+            invalidCredentials => "invalidCredentials",
+            internalError => "internalError");
+    }
+
+    public static string IdenticalShapesRoundTrip()
+    {
+        var json = JsonConvert.SerializeObject(Message.Memo("hi"));
+        return json + "|" + JsonConvert.DeserializeObject<Message>(json)!.Match(
+            text => "text:" + text.Body,
+            memo => "memo:" + memo.Body);
+    }
+
+    public static string NullSerializesToNull()
+        => JsonConvert.SerializeObject((Message?)null);
+}
+""";
+
     internal const string InternalSealedRecordUnion = """
 using Zooper.Gorilla.Attributes;
 
